@@ -22,6 +22,7 @@ class LogseqBaseModel(BaseModel):
     """Base model with Pydantic configuration"""
     model_config = ConfigDict(extra='forbid', validate_assignment=True)
 
+
 class InsertBlockParams(LogseqBaseModel):
     """Parameters for inserting a new block in Logseq."""
     parent_block: Annotated[
@@ -53,6 +54,7 @@ class InsertBlockParams(LogseqBaseModel):
             if value.startswith('((') and value.endswith('))'):
                 return value.strip('()')
         return value
+
 
 class CreatePageParams(LogseqBaseModel):
     """Parameters for creating a new page in Logseq."""
@@ -92,6 +94,7 @@ class CreatePageParams(LogseqBaseModel):
 class GetCurrentPageParams(LogseqBaseModel):
     """Parameters for getting current page (no arguments needed)"""
 
+
 class GetPageParams(LogseqBaseModel):
     """Parameters for retrieving a specific page"""
     src_page: Annotated[
@@ -109,6 +112,7 @@ class GetPageParams(LogseqBaseModel):
         )
     ]
 
+
 class GetAllPagesParams(LogseqBaseModel):
     """Parameters for listing all pages"""
     repo: Annotated[
@@ -118,6 +122,49 @@ class GetAllPagesParams(LogseqBaseModel):
             description="Repository name (default: current graph)"
         )
     ]
+
+
+class EditBlockParams(LogseqBaseModel):
+    src_block: Annotated[
+        str,
+        Field(description="Block UUID or reference", examples=["6485a-9de3...", "[[Page/Block]]"])
+    ]
+    pos: Annotated[
+        int,
+        Field(
+            default=0,
+            description="Cursor position in block content",
+            ge=0,
+            le=10000
+        )
+    ]
+
+
+class ExitEditingModeParams(LogseqBaseModel):
+    select_block: Annotated[
+        bool,
+        Field(
+            default=False,
+            description="Keep block selected after exiting edit mode"
+        )
+    ]
+
+
+class GetPageBlocksTreeParams(LogseqBaseModel):
+    src_page: Annotated[
+        str,
+        Field(description="Page name or UUID", examples=["[[Journal]]", "6485a-9de3..."])
+    ]
+
+
+class EmptyParams(LogseqBaseModel):
+    pass
+
+class GetEditingBlockContentParams(LogseqBaseModel):
+    pass
+
+class GetCurrentBlocksTreeParams(LogseqBaseModel):
+    pass
 
 
 async def serve(
@@ -194,6 +241,31 @@ async def serve(
                 description="List all pages in the graph with basic metadata",
                 inputSchema=GetAllPagesParams.model_json_schema(),
             ),
+            Tool(
+                name="logseq_edit_block",
+                description="Enter editing mode for a specific block",
+                inputSchema=EditBlockParams.model_json_schema(),
+            ),
+            Tool(
+                name="logseq_exit_editing_mode",
+                description="Exit current editing mode",
+                inputSchema=ExitEditingModeParams.model_json_schema(),
+            ),
+            Tool(
+                name="logseq_get_current_page_content",
+                description="Get hierarchical block structure of current page",
+                inputSchema=GetCurrentBlocksTreeParams.model_json_schema()  # No parameters
+            ),
+            Tool(
+                name="logseq_get_editing_block_content",
+                description="Get content of currently edited block",
+                inputSchema=GetEditingBlockContentParams.model_json_schema()  # No parameters
+            ),
+            Tool(
+                name="logseq_get_page_content",
+                description="Get block hierarchy for specific page",
+                inputSchema=GetPageBlocksTreeParams.model_json_schema(),
+            ),
         ]
 
     @server.list_prompts()
@@ -268,6 +340,49 @@ async def serve(
                     )
                 ]
             ),
+            Prompt(
+                name="logseq_edit_block",
+                description="Edit specific block content",
+                arguments=[
+                    PromptArgument(
+                        name="src_block",
+                        description="Block identifier",
+                        required=True
+                    )
+                ]
+            ),
+            Prompt(
+                name="logseq_exit_editing_mode",
+                description="Exit block editing mode",
+                arguments=[
+                    PromptArgument(
+                        name="select_block",
+                        description="Keep block selected",
+                        required=False
+                    )
+                ]
+            ),
+            Prompt(
+                name="logseq_get_current_page_content",
+                description="Get current page's content by each block",
+                arguments=[]
+            ),
+            Prompt(
+                name="logseq_get_editing_block_content",
+                description="Get content of active editing block",
+                arguments=[]
+            ),
+            Prompt(
+                name="logseq_get_page_content",
+                description="Get block page content by each block",
+                arguments=[
+                    PromptArgument(
+                        name="src_page",
+                        description="Page identifier",
+                        required=True
+                    )
+                ]
+            ),
         ]
 
     def format_block_result(result: dict) -> str:
@@ -313,6 +428,46 @@ async def serve(
             f"UUID: {result.get('uuid')}\n"
             f"Last updated: {result.get('updatedAt', 'N/A')}"
         )
+
+    def format_blocks_tree(blocks: list) -> str:
+        """Format hierarchical block structure"""
+        def print_tree(block, level=0):
+            output = []
+            prefix = "  " * level + "- "
+            output.append(f"{prefix}{block.get('content', '')}")
+            for child in block.get('children', []):
+                output.extend(print_tree(child, level + 1))
+            return output
+
+        return "\n".join(
+            line for block in blocks
+            for line in print_tree(block)
+        )
+
+    def _format_no_arg_result(method_name: str, result: dict) -> str:
+        """Format results for methods without arguments"""
+        formatters = {
+            'logseq_get_current_page_content': lambda r: format_blocks_tree(r),
+            'logseq_get_editing_block_content': lambda r: f"Current content:\n{r}",
+            'logseq_get_current_page': _format_current_page
+        }
+        return formatters[method_name](result)
+
+    def format_no_arg_result(name: str, result) -> str:
+        """Format results for methods without arguments"""
+        formatters = {
+            'logseq_get_current_page': lambda r: (
+                f"Current: {r.get('name', r.get('content', 'Untitled'))}\n"
+                f"UUID: {r.get('uuid')}\n"
+                f"Last updated: {r.get('updatedAt', 'N/A')}"
+            ),
+            'logseq_get_current_page_content': lambda r: format_blocks_tree(r),
+            'logseq_get_editing_block_content': lambda r: f"Current content:\n{r}",
+            'logseq_get_all_pages': lambda r: "\n".join(
+                f"{p['name']} ({p['uuid']})" for p in sorted(r, key=lambda x: x['name'])
+            )
+        }
+        return formatters[name](result)
 
     @server.call_tool()
     async def call_tool(name: str, arguments: dict) -> list[TextContent]:
@@ -391,6 +546,54 @@ async def serve(
                     text=format_pages_list(result)
                 )]
 
+            elif name == "logseq_edit_block":
+                args = EditBlockParams(**arguments)
+                result = make_request(
+                    "logseq.Editor.editBlock",
+                    [args.src_block, {"pos": args.pos}]
+                )
+                return [TextContent(
+                    type="text",
+                    text=f"Editing block {args.src_block} at position {args.pos}"
+                )]
+
+            elif name == "logseq_exit_editing_mode":
+                args = ExitEditingModeParams(**arguments)
+                make_request(
+                    "logseq.Editor.exitEditingMode",
+                    [args.select_block]
+                )
+                return [TextContent(
+                    type="text",
+                    text="Exited editing mode" +
+                         (" with block selected" if args.select_block else "")
+                )]
+
+            elif name == "logseq_get_current_page_content":
+                result = make_request("logseq.Editor.getCurrentPageBlocksTree", [])
+                return [TextContent(
+                    type="text",
+                    text=format_blocks_tree(result)
+                )]
+
+            elif name == "logseq_get_editing_block_content":
+                result = make_request("logseq.Editor.getEditingBlockContent", [])
+                return [TextContent(
+                    type="text",
+                    text=f"Current editing block content:\n{result}"
+                )]
+
+            elif name == "logseq_get_page_content":
+                args = GetPageBlocksTreeParams(**arguments)
+                result = make_request(
+                    "logseq.Editor.getPageBlocksTree",
+                    [args.src_page]
+                )
+                return [TextContent(
+                    type="text",
+                    text=format_blocks_tree(result)
+                )]
+
             else:
                 raise McpError(ErrorData(INVALID_PARAMS, f"Unknown tool: {name}"))
 
@@ -399,40 +602,56 @@ async def serve(
 
     @server.get_prompt()
     async def get_prompt(name: str, arguments: dict | None) -> GetPromptResult:
-        if not arguments:
-            if name == "logseq_get_current_page":
-                # Special case: current page doesn't require arguments
-                result = make_request("logseq.Editor.getCurrentPage", [])
+        try:
+            # Handle methods that don't require arguments
+            no_arg_methods = {
+                'logseq_get_current_page',
+                'logseq_get_current_page_content',
+                'logseq_get_editing_block_content',
+                'logseq_get_all_pages'
+            }
+
+            # Normalize arguments
+            if arguments is None:
+                arguments = {}
+
+            # Automatic handling for no-argument methods
+            if name in no_arg_methods and not arguments:
+                api_method = name.split('_', 1)[1].replace('_', '.')
+                result = make_request(f"logseq.Editor.{api_method}", [])
                 return GetPromptResult(
-                    description="Current active page/block",
+                    description=f"Current {name.split('_')[-1].replace('_', ' ')}",
                     messages=[
                         PromptMessage(
                             role="user",
                             content=TextContent(
                                 type="text",
-                                text=_format_current_page(result)
+                                text=format_no_arg_result(name, result)
                             )
                         )
                     ]
                 )
-            else:
-                raise McpError(ErrorData(INVALID_PARAMS, "Missing arguments"))
 
-        try:
+            # Handle methods with arguments
             if name == "logseq_insert_block":
-                if "content" not in arguments:
-                    raise ValueError("Content is required for block creation")
+                required_args = ["content"]
+                if not all(k in arguments for k in required_args):
+                    raise ValueError(f"Missing required arguments: {required_args}")
 
                 result = make_request(
                     "logseq.Editor.insertBlock",
                     [
                         arguments.get("parent_block"),
                         arguments["content"],
-                        {"isPageBlock": arguments.get("is_page_block", False)}
+                        {
+                            "isPageBlock": arguments.get("is_page_block", False),
+                            "before": arguments.get("before", False),
+                            "customUUID": arguments.get("custom_uuid")
+                        }
                     ]
                 )
                 return GetPromptResult(
-                    description=f"Created block: {arguments['content']}",
+                    description=f"Created block: {arguments['content'][:50]}...",
                     messages=[
                         PromptMessage(
                             role="user",
@@ -446,14 +665,19 @@ async def serve(
 
             elif name == "logseq_create_page":
                 if "page_name" not in arguments:
-                    raise ValueError("Page name is required")
+                    raise ValueError("page_name is required")
 
                 result = make_request(
                     "logseq.Editor.createPage",
                     [
                         arguments["page_name"],
-                        json.loads(arguments.get("properties", "{}")),
-                        {"journal": arguments.get("journal", False)}
+                        arguments.get("properties", {}),
+                        {
+                            "journal": arguments.get("journal", False),
+                            "format": arguments.get("format", "markdown"),
+                            "createFirstBlock": arguments.get("create_first_block", True),
+                            "redirect": arguments.get("redirect", False)
+                        }
                     ]
                 )
                 return GetPromptResult(
@@ -469,41 +693,85 @@ async def serve(
                     ]
                 )
 
-            elif name == "logseq_get_current_page":
-                # Handle cases where arguments are provided unnecessarily
-                return GetPromptResult(
-                    description="Current page (no arguments needed)",
-                    messages=[
-                        PromptMessage(
-                            role="user",
-                            content=TextContent(
-                                type="text",
-                                text="This prompt doesn't require any arguments"
-                            )
-                        )
-                    ]
-                )
-
             elif name == "logseq_get_page":
                 if "src_page" not in arguments:
                     raise ValueError("src_page is required")
 
-                include_children = arguments.get("include_children", False)
                 result = make_request(
                     "logseq.Editor.getPage",
                     [
                         arguments["src_page"],
-                        {"includeChildren": include_children}
+                        {"includeChildren": arguments.get("include_children", False)}
                     ]
                 )
                 return GetPromptResult(
-                    description=f"Details for page: {arguments['src_page']}",
+                    description=f"Details for {arguments['src_page']}",
                     messages=[
                         PromptMessage(
                             role="user",
                             content=TextContent(
                                 type="text",
                                 text=format_page_detail(result)
+                            )
+                        )
+                    ]
+                )
+
+            elif name == "logseq_edit_block":
+                if "src_block" not in arguments:
+                    raise ValueError("src_block is required")
+
+                pos = arguments.get("pos", 0)
+                make_request(
+                    "logseq.Editor.editBlock",
+                    [arguments["src_block"], {"pos": pos}]
+                )
+                return GetPromptResult(
+                    description=f"Editing block {arguments['src_block']}",
+                    messages=[
+                        PromptMessage(
+                            role="user",
+                            content=TextContent(
+                                type="text",
+                                text=f"Editing mode activated at position {pos}"
+                            )
+                        )
+                    ]
+                )
+
+            elif name == "logseq_exit_editing_mode":
+                select_block = arguments.get("select_block", False)
+                make_request("logseq.Editor.exitEditingMode", [select_block])
+                return GetPromptResult(
+                    description="Exited editing mode",
+                    messages=[
+                        PromptMessage(
+                            role="user",
+                            content=TextContent(
+                                type="text",
+                                text="Exited editing" +
+                                     (" with block selected" if select_block else "")
+                            )
+                        )
+                    ]
+                )
+
+            elif name == "logseq_get_page_content":
+                if "src_page" not in arguments:
+                    raise ValueError("src_page is required")
+
+                result = make_request(
+                    "logseq.Editor.getPageBlocksTree",
+                    [arguments["src_page"]]
+                )
+                return GetPromptResult(
+                    description=f"Block structure for {arguments['src_page']}",
+                    messages=[
+                        PromptMessage(
+                            role="user",
+                            content=TextContent(
+                                type="text",
+                                text=format_blocks_tree(result)
                             )
                         )
                     ]
@@ -530,7 +798,6 @@ async def serve(
 
             else:
                 raise McpError(ErrorData(INVALID_PARAMS, f"Unknown prompt: {name}"))
-
 
         except Exception as e:
             return GetPromptResult(
