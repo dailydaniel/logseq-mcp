@@ -89,6 +89,37 @@ class CreatePageParams(LogseqBaseModel):
         return value or {}
 
 
+class GetCurrentPageParams(LogseqBaseModel):
+    """Parameters for getting current page (no arguments needed)"""
+
+class GetPageParams(LogseqBaseModel):
+    """Parameters for retrieving a specific page"""
+    src_page: Annotated[
+        str | int,
+        Field(
+            description="Page identifier (name, UUID or database ID)",
+            examples=["[[Journal/2024-03-15]]", 12345]
+        )
+    ]
+    include_children: Annotated[
+        Optional[bool],
+        Field(
+            default=False,
+            description="Include child blocks in response"
+        )
+    ]
+
+class GetAllPagesParams(LogseqBaseModel):
+    """Parameters for listing all pages"""
+    repo: Annotated[
+        Optional[str],
+        Field(
+            default=None,
+            description="Repository name (default: current graph)"
+        )
+    ]
+
+
 async def serve(
     api_key: str,
     logseq_url: str = "http://localhost:12315"
@@ -147,7 +178,22 @@ async def serve(
                 - Automatic first block creation
                 Perfect for template-based page creation and knowledge management.""",
                 inputSchema=CreatePageParams.model_json_schema(),
-            )
+            ),
+            Tool(
+                name="logseq_get_current_page",
+                description="Retrieves the currently active page or block in the user's workspace",
+                inputSchema=GetCurrentPageParams.model_json_schema(),
+            ),
+            Tool(
+                name="logseq_get_page",
+                description="Retrieve detailed information about a specific page including metadata and content",
+                inputSchema=GetPageParams.model_json_schema(),
+            ),
+            Tool(
+                name="logseq_get_all_pages",
+                description="List all pages in the graph with basic metadata",
+                inputSchema=GetAllPagesParams.model_json_schema(),
+            ),
         ]
 
     @server.list_prompts()
@@ -195,6 +241,33 @@ async def serve(
                     ),
                 ],
             ),
+            Prompt(
+                name="logseq_get_current_page",
+                description="Get the currently active page or block",
+                arguments=[]
+            ),
+            Prompt(
+                name="logseq_get_page",
+                description="Retrieve information about a specific page",
+                arguments=[
+                    PromptArgument(
+                        name="src_page",
+                        description="Page name, UUID or database ID",
+                        required=True
+                    )
+                ]
+            ),
+            Prompt(
+                name="logseq_get_all_pages",
+                description="List all pages in the graph",
+                arguments=[
+                    PromptArgument(
+                        name="repo",
+                        description="Repository name (optional)",
+                        required=False
+                    )
+                ]
+            ),
         ]
 
     def format_block_result(result: dict) -> str:
@@ -213,6 +286,32 @@ async def serve(
             f"UUID: {result.get('uuid')}\n"
             f"Journal: {result.get('journal', False)}\n"
             f"Blocks: {len(result.get('blocks', []))}"
+        )
+
+    def format_page_detail(page: dict) -> str:
+        """Format single page details"""
+        return (
+            f"Page: {page.get('name', 'Unnamed')}\n"
+            f"UUID: {page.get('uuid')}\n"
+            f"Created: {page.get('createdAt', 0)}\n"
+            f"Updated: {page.get('updatedAt', 0)}\n"
+            f"Blocks: {len(page.get('blocks', []))}"
+        )
+
+    def format_pages_list(pages: list) -> str:
+        """Format list of pages"""
+        return "\n".join(
+            f"{p['name']} (UUID: {p['uuid']})"
+            for p in sorted(pages, key=lambda x: x.get('name', ''))
+        )
+
+    def _format_current_page(result: dict) -> str:
+        """Special formatting for current page/block context"""
+        entity_type = "Page" if 'name' in result else "Block"
+        return (
+            f"Current {entity_type}: {result.get('name', result.get('content', 'Untitled'))}\n"
+            f"UUID: {result.get('uuid')}\n"
+            f"Last updated: {result.get('updatedAt', 'N/A')}"
         )
 
     @server.call_tool()
@@ -256,6 +355,42 @@ async def serve(
                     text=format_page_result(result)
                 )]
 
+            elif name == "logseq_get_current_page":
+                args = GetCurrentPageParams(**arguments)
+                result = make_request(
+                    "logseq.Editor.getCurrentPage",
+                    []
+                )
+                return [TextContent(
+                    type="text",
+                    text=format_page_result(result)
+                )]
+
+            elif name == "logseq_get_page":
+                args = GetPageParams(**arguments)
+                result = make_request(
+                    "logseq.Editor.getPage",
+                    [
+                        args.src_page,
+                        {"includeChildren": args.include_children}
+                    ]
+                )
+                return [TextContent(
+                    type="text",
+                    text=format_page_detail(result)
+                )]
+
+            elif name == "logseq_get_all_pages":
+                args = GetAllPagesParams(**arguments)
+                result = make_request(
+                    "logseq.Editor.getAllPages",
+                    [args.repo] if args.repo else []
+                )
+                return [TextContent(
+                    type="text",
+                    text=format_pages_list(result)
+                )]
+
             else:
                 raise McpError(ErrorData(INVALID_PARAMS, f"Unknown tool: {name}"))
 
@@ -265,7 +400,23 @@ async def serve(
     @server.get_prompt()
     async def get_prompt(name: str, arguments: dict | None) -> GetPromptResult:
         if not arguments:
-            raise McpError(ErrorData(INVALID_PARAMS, "Missing arguments"))
+            if name == "logseq_get_current_page":
+                # Special case: current page doesn't require arguments
+                result = make_request("logseq.Editor.getCurrentPage", [])
+                return GetPromptResult(
+                    description="Current active page/block",
+                    messages=[
+                        PromptMessage(
+                            role="user",
+                            content=TextContent(
+                                type="text",
+                                text=_format_current_page(result)
+                            )
+                        )
+                    ]
+                )
+            else:
+                raise McpError(ErrorData(INVALID_PARAMS, "Missing arguments"))
 
         try:
             if name == "logseq_insert_block":
@@ -318,8 +469,68 @@ async def serve(
                     ]
                 )
 
+            elif name == "logseq_get_current_page":
+                # Handle cases where arguments are provided unnecessarily
+                return GetPromptResult(
+                    description="Current page (no arguments needed)",
+                    messages=[
+                        PromptMessage(
+                            role="user",
+                            content=TextContent(
+                                type="text",
+                                text="This prompt doesn't require any arguments"
+                            )
+                        )
+                    ]
+                )
+
+            elif name == "logseq_get_page":
+                if "src_page" not in arguments:
+                    raise ValueError("src_page is required")
+
+                include_children = arguments.get("include_children", False)
+                result = make_request(
+                    "logseq.Editor.getPage",
+                    [
+                        arguments["src_page"],
+                        {"includeChildren": include_children}
+                    ]
+                )
+                return GetPromptResult(
+                    description=f"Details for page: {arguments['src_page']}",
+                    messages=[
+                        PromptMessage(
+                            role="user",
+                            content=TextContent(
+                                type="text",
+                                text=format_page_detail(result)
+                            )
+                        )
+                    ]
+                )
+
+            elif name == "logseq_get_all_pages":
+                repo = arguments.get("repo")
+                result = make_request(
+                    "logseq.Editor.getAllPages",
+                    [repo] if repo else []
+                )
+                return GetPromptResult(
+                    description=f"All pages in {repo or 'current graph'}",
+                    messages=[
+                        PromptMessage(
+                            role="user",
+                            content=TextContent(
+                                type="text",
+                                text=format_pages_list(result)
+                            )
+                        )
+                    ]
+                )
+
             else:
                 raise McpError(ErrorData(INVALID_PARAMS, f"Unknown prompt: {name}"))
+
 
         except Exception as e:
             return GetPromptResult(
@@ -335,6 +546,7 @@ async def serve(
     options = server.create_initialization_options()
     async with stdio_server() as (read_stream, write_stream):
         await server.run(read_stream, write_stream, options, raise_exceptions=True)
+
 
 if __name__ == "__main__":
     import asyncio
