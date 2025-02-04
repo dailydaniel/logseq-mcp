@@ -3,21 +3,54 @@ A Model Context Protocol server that provides direct integration with Logseq's k
 
 ## Available Tools
 
-### logseq_insert_block - Creates new blocks in Logseq
-**Parameters:**
-- `parent_block` (string, optional): UUID or content of parent block/page
-- `content` (string, required): Block content in Markdown/Org format
-- `is_page_block` (boolean, optional): Create as page-level block (default: false)
-- `before` (boolean, optional): Insert before parent block (default: false)
-- `custom_uuid` (string, optional): Custom UUIDv4 for the block
+### Block Operations
+- **logseq_insert_block** - Create new blocks in Logseq
+  **Parameters**:
+  - `parent_block` (string): Parent block UUID or page name
+  - `content` (string, required): Block content
+  - `is_page_block` (boolean): Create as page-level block
+  - `before` (boolean): Insert before parent block
+  - `custom_uuid` (string): Custom UUIDv4 for block
 
-### logseq_create_page - Creates new pages with properties
-**Parameters:**
-- `page_name` (string, required): Name of the page to create
-- `properties` (object, optional): Page properties as key-value pairs
-- `journal` (boolean, optional): Create as journal page (default: false)
-- `format` (string, optional): Page format - "markdown" or "org" (default: "markdown")
-- `create_first_block` (boolean, optional): Create initial empty block (default: true)
+- **logseq_edit_block** - Enter block editing mode
+  **Parameters**:
+  - `src_block` (string, required): Block UUID
+  - `pos` (number): Cursor position
+
+- **logseq_exit_editing_mode** - Exit editing mode
+  **Parameters**:
+  - `select_block` (boolean): Keep block selected
+
+### Page Operations
+- **logseq_create_page** - Create new pages
+  **Parameters**:
+  - `page_name` (string, required): Page name
+  - `properties` (object): Page properties
+  - `journal` (boolean): Create as journal page
+  - `format` (string): Page format (markdown/org)
+
+- **logseq_get_page** - Get page details
+  **Parameters**:
+  - `src_page` (string, required): Page identifier
+  - `include_children` (boolean): Include child blocks
+
+- **logseq_get_all_pages** - List all pages
+  **Parameters**:
+  - `repo` (string): Repository name
+
+### Content Retrieval
+- **logseq_get_current_page** - Get active page/block
+  **Parameters**: None
+
+- **logseq_get_current_blocks_tree** - Current page's block hierarchy
+  **Parameters**: None
+
+- **logseq_get_editing_block_content** - Get content of active block
+  **Parameters**: None
+
+- **logseq_get_page_blocks_tree** - Get page's block structure
+  **Parameters**:
+  - `src_page` (string, required): Page identifier
 
 ## Prompts
 
@@ -38,7 +71,9 @@ Create a new Logseq page
 ## Installation
 
 ### Using pip
-todo: add to pypi
+```bash
+pip install mcp-server-logseq
+```
 ### From source
 ```bash
 git clone https://github.com/dailydaniel/logseq-mcp.git

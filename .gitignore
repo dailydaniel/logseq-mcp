@@ -2,3 +2,4 @@
 .ropeproject/
 .env
 src/mcp_server_logseq/__pycache__/
+dist/
