@@ -1,6 +1,22 @@
 # Logseq MCP Server
 A Model Context Protocol server that provides direct integration with Logseq's knowledge base. This server enables LLMs to interact with Logseq graphs, create pages, manage blocks, and organize information programmatically.
 
+## Usage with Claude Desktop
+```json
+{
+  "mcpServers": {
+    "logseq": {
+      "command": "uvx",
+      "args": ["mcp-server-logseq"],
+      "env": {
+        "LOGSEQ_API_TOKEN": "<YOUR_KEY>",
+        "LOGSEQ_API_URL": "http://127.0.0.1:12315"
+      }
+    }
+  }
+}
+```
+
 ## Available Tools
 
 ### Block Operations
