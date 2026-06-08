@@ -1,42 +1,61 @@
-from .server import serve
+"""Logseq MCP server package."""
+
+from __future__ import annotations
+
+import argparse
+import os
+
+from dotenv import load_dotenv
+
+from .server import config, mcp
 
 
-def main():
-    """MCP LogSeq Server - AI-powered note taking for MCP"""
-    import argparse
-    import asyncio
-    import os
-    from dotenv import load_dotenv
-
+def main() -> None:
+    """CLI entry point for the Logseq MCP server."""
     load_dotenv()
 
     parser = argparse.ArgumentParser(
-        description="Share your LogSeq notes with LLM (https://docs.logseq.com/#/page/local%20http%20server)"
+        description=(
+            "MCP server for the Logseq local HTTP API "
+            "(https://docs.logseq.com/#/page/local%20http%20server)"
+        )
+    )
+    parser.add_argument("--api-key", help="Logseq API token")
+    parser.add_argument("--url", help="Logseq API base URL")
+    parser.add_argument(
+        "--transport",
+        choices=("stdio", "streamable-http"),
+        default=os.getenv("LOGSEQ_MCP_TRANSPORT", "stdio"),
+        help="MCP transport (default: stdio)",
     )
     parser.add_argument(
-        "--api-key",
-        type=str,
-        help="LogSeq API key",
+        "--host",
+        default=os.getenv("LOGSEQ_MCP_HOST", "127.0.0.1"),
+        help="Host for streamable-http transport",
     )
     parser.add_argument(
-        "--url",
-        type=str,
-        help="LogSeq API host",
+        "--port",
+        type=int,
+        default=int(os.getenv("LOGSEQ_MCP_PORT", "8000")),
+        help="Port for streamable-http transport",
     )
-
     args = parser.parse_args()
 
-    # Check for API key in args first, then environment
-    api_key = args.api_key or os.getenv("LOGSEQ_API_TOKEN")
-    if not api_key:
-        parser.error("LogSeq API key must be provided either via --api-key or LOGSEQ_API_TOKEN environment variable")
+    token = args.api_key or os.getenv("LOGSEQ_API_TOKEN")
+    if not token:
+        parser.error(
+            "Logseq API token required: pass --api-key or set LOGSEQ_API_TOKEN"
+        )
 
-    # Check for URL in args first, then environment
-    url = args.url or os.getenv("LOGSEQ_API_URL")
-    if not url:
-        parser.error("LogSeq API URL must be provided either via --url or LOGSEQ_API_URL environment variable")
+    config["token"] = token
+    config["url"] = args.url or os.getenv("LOGSEQ_API_URL") or "http://localhost:12315"
 
-    asyncio.run(serve(api_key, url))
+    if args.transport == "streamable-http":
+        mcp.settings.host = args.host
+        mcp.settings.port = args.port
+        mcp.run(transport="streamable-http")
+    else:
+        mcp.run(transport="stdio")
 
 
 if __name__ == "__main__":

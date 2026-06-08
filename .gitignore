@@ -3,3 +3,8 @@
 .env
 src/mcp_server_logseq/__pycache__/
 dist/
+assets/
+.mypy_cache/
+__pycache__/
+.pytest_cache/
+.claude/
