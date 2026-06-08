@@ -1,0 +1,13 @@
+.git
+.gitignore
+.venv
+assets
+.claude
+.env
+.mypy_cache
+.pytest_cache
+__pycache__
+**/__pycache__
+*.pyc
+dist
+.ropeproject

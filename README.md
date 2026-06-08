@@ -47,20 +47,53 @@ code. A `.env` file is supported (see `.env.example`).
 ## Transports
 
 By default the server runs over **stdio** (for Claude Desktop and other local
-clients). An experimental **Streamable HTTP** transport is also available for
-remote/networked use (e.g. a phone client):
+clients). A **Streamable HTTP** transport is also available for remote/networked
+use (e.g. a phone client):
 
 ```bash
-mcp-server-logseq --transport streamable-http --host 0.0.0.0 --port 8000
+LOGSEQ_MCP_HTTP_TOKEN=<client-secret> \
+  mcp-server-logseq --transport streamable-http --host 0.0.0.0 --port 8000
 # MCP endpoint: http://<host>:8000/mcp
 ```
 
-Equivalent env vars: `LOGSEQ_MCP_TRANSPORT`, `LOGSEQ_MCP_HOST`, `LOGSEQ_MCP_PORT`.
+Env vars: `LOGSEQ_MCP_TRANSPORT`, `LOGSEQ_MCP_HOST`, `LOGSEQ_MCP_PORT`,
+`LOGSEQ_MCP_HTTP_TOKEN` (or `--http-token`).
 
-> ⚠️ The Streamable HTTP transport does **not** yet enforce authentication on
-> the MCP endpoint itself. Do not expose it directly to an untrusted network
-> without a reverse proxy + bearer-token/OAuth layer. See the project notes for
-> the planned auth design.
+### Authentication
+
+The Streamable HTTP transport **requires** a bearer token: every request must
+send `Authorization: Bearer <LOGSEQ_MCP_HTTP_TOKEN>`, or it gets `401`. The
+server refuses to start in this mode without a token set. Note this is a
+distinct secret from `LOGSEQ_API_TOKEN`:
+
+| Secret | Direction |
+| --- | --- |
+| `LOGSEQ_API_TOKEN` | this server → Logseq |
+| `LOGSEQ_MCP_HTTP_TOKEN` | client (phone) → this server |
+
+> ⚠️ A bearer token over **plain HTTP** is only safe on an already-encrypted
+> channel. Don't expose the raw port to the open internet. The easy path for a
+> home/headless host is **Tailscale**: install it on the host and the client,
+> and reach `http://<host>.<tailnet>.ts.net:8000/mcp` over the encrypted
+> tunnel — no domains, nginx, or certificates. (`tailscale serve` can add TLS
+> if you want `https://`.)
+
+## Docker
+
+```bash
+docker build -t logseq-mcp .
+docker run --rm -p 8000:8000 \
+  -e LOGSEQ_API_TOKEN=<logseq-token> \
+  -e LOGSEQ_MCP_HTTP_TOKEN=<client-secret> \
+  logseq-mcp
+```
+
+The container serves Streamable HTTP on port 8000 and talks to a Logseq running
+on the **host**. On Docker Desktop (macOS/Windows) the default
+`LOGSEQ_API_URL=http://host.docker.internal:12315` already points at the host;
+on Linux add `--add-host=host.docker.internal:host-gateway` (or set
+`LOGSEQ_API_URL` to the host IP). Make sure Logseq's HTTP API server is running
+and listening.
 
 ## Available Tools
 

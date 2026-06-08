@@ -10,6 +10,28 @@ from dotenv import load_dotenv
 from .server import config, mcp
 
 
+def _run_streamable_http(host: str, port: int, http_token: str | None) -> None:
+    """Serve over Streamable HTTP, gated by a bearer token."""
+    import uvicorn
+
+    from .auth import BearerAuthMiddleware
+
+    if not http_token:
+        raise SystemExit(
+            "Streamable HTTP transport requires an auth token: pass --http-token "
+            "or set LOGSEQ_MCP_HTTP_TOKEN. (Refusing to expose an unauthenticated "
+            "endpoint.)"
+        )
+
+    mcp.settings.host = host
+    mcp.settings.port = port
+
+    app = mcp.streamable_http_app()
+    app.add_middleware(BearerAuthMiddleware, token=http_token)
+
+    uvicorn.run(app, host=host, port=port)
+
+
 def main() -> None:
     """CLI entry point for the Logseq MCP server."""
     load_dotenv()
@@ -39,6 +61,11 @@ def main() -> None:
         default=int(os.getenv("LOGSEQ_MCP_PORT", "8000")),
         help="Port for streamable-http transport",
     )
+    parser.add_argument(
+        "--http-token",
+        default=os.getenv("LOGSEQ_MCP_HTTP_TOKEN"),
+        help="Bearer token required from clients on the streamable-http endpoint",
+    )
     args = parser.parse_args()
 
     token = args.api_key or os.getenv("LOGSEQ_API_TOKEN")
@@ -51,9 +78,7 @@ def main() -> None:
     config["url"] = args.url or os.getenv("LOGSEQ_API_URL") or "http://localhost:12315"
 
     if args.transport == "streamable-http":
-        mcp.settings.host = args.host
-        mcp.settings.port = args.port
-        mcp.run(transport="streamable-http")
+        _run_streamable_http(args.host, args.port, args.http_token)
     else:
         mcp.run(transport="stdio")
 
