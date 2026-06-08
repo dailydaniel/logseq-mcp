@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import argparse
 import os
+from pathlib import Path
 
 from dotenv import load_dotenv
 
+from . import server
+from .config import ConfigError, default_config_path, load_config
 from .server import config, mcp
 
 
@@ -76,6 +79,12 @@ def main() -> None:
 
     config["token"] = token
     config["url"] = args.url or os.getenv("LOGSEQ_API_URL") or "http://localhost:12315"
+
+    cfg_path = Path(os.getenv("LOGSEQ_MCP_CONFIG") or default_config_path())
+    try:
+        server.app_config = load_config(cfg_path)
+    except ConfigError as exc:
+        parser.error(str(exc))
 
     if args.transport == "streamable-http":
         _run_streamable_http(args.host, args.port, args.http_token)

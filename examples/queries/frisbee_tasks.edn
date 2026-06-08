@@ -1,0 +1,12 @@
+;; Open tasks that are descendants of a block referencing a page whose name
+;; starts with "_work/frisbee". Uses the shared `descendant` rule from
+;; rules/common.edn (referenced via the query's `rules = ...` in config.toml).
+{:query
+ [:find (pull ?b [* {:block/page [:block/name]}])
+  :in $ %
+  :where
+  [?a :block/refs ?rp] [?rp :block/name ?n]
+  [(clojure.string/starts-with? ?n "_work/frisbee")]
+  (descendant ?b ?a)
+  [?b :block/marker ?m]
+  [(contains? #{"TODO" "NOW" "LATER" "DOING"} ?m)]]}

@@ -1,0 +1,15 @@
+;; Latest week-plan items: blocks (and their descendants) that reference
+;; [[_week_plan]] on the most recent journal day that has any such block.
+{:query
+ [:find (pull ?b [* {:block/page [:block/name :block/journal-day]}])
+  :in $ %
+  :where (latest-week-plan-item ?b)]
+ :rules
+ [[(latest-week-plan-item ?b)
+   [?b :block/refs ?page] [?page :block/name "_week_plan"]
+   [?b :block/page ?p1] [?p1 :block/journal-day ?d1]
+   (not [?b2 :block/refs ?page] [?b2 :block/page ?p2]
+        [?p2 :block/journal-day ?d2] [(> ?d2 ?d1)])]
+  [(latest-week-plan-item ?b)
+   [?b :block/parent ?p] (latest-week-plan-item ?p)]]
+ :inputs []}

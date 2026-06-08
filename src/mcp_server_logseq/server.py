@@ -27,6 +27,9 @@ config: dict[str, Optional[str]] = {
     "token": None,
 }
 
+# Loaded TOML/EDN configuration (set at startup by __init__.main). None until then.
+app_config: Any = None
+
 _client: Optional[httpx.AsyncClient] = None
 
 

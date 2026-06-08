@@ -1,0 +1,4 @@
+;; Shared Datalog rules, referenced from a query's `rules = "rules/common.edn"`.
+;; `descendant` = ?b is ?a itself's child, transitively to any depth.
+[[(descendant ?b ?a) [?b :block/parent ?a]]
+ [(descendant ?b ?a) [?b :block/parent ?p] (descendant ?p ?a)]]

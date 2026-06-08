@@ -1,0 +1,48 @@
+# Example logseq-mcp config.
+# Copy to ~/.config/logseq-mcp/config.toml (or point LOGSEQ_MCP_CONFIG at it).
+# Token and URL come from the environment (LOGSEQ_API_TOKEN / LOGSEQ_API_URL),
+# never from this file. Every section is optional — with no config file at all
+# the server runs on safe defaults.
+
+[read]
+resolve_depth = 2          # 0 = don't expand ((uuid)); page-refs always -> name
+
+[write]
+allow_agents_write_any = false
+agent_write_prefix = "agent"
+
+[search]
+files_path = ""            # e.g. "/Users/you/LifeGraph"; empty = file-search off
+
+[blacklist]
+pages = ["api-key"]        # page + its subpages hidden; [[page]] mentions redacted
+
+[tasks]
+allow_status_change = false
+
+[reading_list]
+namespace = "read"
+
+[audit_log]
+enabled = false
+
+# --- custom queries ---
+
+# advanced query as a self-contained EDN map (its own :rules and :inputs)
+[queries.week_plan]
+description = "Latest week-plan items (blocks)"
+file = "queries/week_plan.edn"
+register_as_tool = true
+resolve_block_refs = true
+
+# advanced query that reuses a shared rules file
+[queries.frisbee_tasks]
+description = "Open tasks under #_work/frisbee"
+file = "queries/frisbee_tasks.edn"
+rules = "rules/common.edn"
+register_as_tool = true
+
+# short simple query inline (no file needed)
+[queries.now]
+description = "NOW priority-A tasks"
+query = "(and (todo NOW) (priority A))"
