@@ -1,9 +1,9 @@
 # Logseq MCP Server
 
-A [Model Context Protocol](https://modelcontextprotocol.io) server that connects
-LLMs to a [Logseq](https://logseq.com) graph. It proxies the Logseq local HTTP
-API (`logseq.Editor.*` methods) so an agent can create pages, manage blocks and
-read content from your graph.
+A [Model Context Protocol](https://modelcontextprotocol.io) server that gives an
+LLM **configurable, safety-scoped** access to a [Logseq](https://logseq.com)
+graph: query and search broadly (all output filtered by a blacklist), but write
+only inside the agent's own namespace plus a narrow task-status channel.
 
 Built on **FastMCP** (the high-level API of the official `mcp` package).
 
@@ -43,6 +43,26 @@ Built on **FastMCP** (the high-level API of the official `mcp` package).
 
 The token is read from the environment or `--api-key`; it is never stored in
 code. A `.env` file is supported (see `.env.example`).
+
+### Config file (optional)
+
+Behaviour beyond the defaults is set in a TOML file — path from
+`LOGSEQ_MCP_CONFIG` (default `~/.config/logseq-mcp/config.toml`). Custom queries
+live in EDN files next to it. **The server runs fine with no config file** (safe
+read-mostly defaults); see [`examples/config.toml`](examples/config.toml) for a
+full annotated example.
+
+| Section | Key options |
+| --- | --- |
+| `[read]` | `resolve_depth` — how deep to expand `((block refs))` |
+| `[write]` | `agent_write_prefix` (default `byAgent`), `allow_agents_write_any` |
+| `[search]` | `files_path` — graph folder; set it to use the ripgrep backend |
+| `[blacklist]` | `pages` — pages (and subpages) to hide and redact everywhere |
+| `[tasks]` | `allow_status_change` — gate for `set_task_status` |
+| `[audit_log]` | `enabled` — log writes to today's journal |
+| `[queries.<name>]` | a named query: `file`/inline `query`, `register_as_tool`, … |
+
+Secrets and the API URL stay in the environment, never in this file.
 
 ## Transports
 
@@ -124,25 +144,39 @@ on Linux add `--add-host=host.docker.internal:host-gateway` (or set
 `LOGSEQ_API_URL` to the host IP). Make sure Logseq's HTTP API server is running
 and listening.
 
-## Available Tools
+## Tools
 
-### Blocks
-- **logseq_insert_block** — insert a new block (`content`, `parent_block?`,
-  `is_page_block?`, `before?`, `custom_uuid?`)
-- **logseq_edit_block** — enter editing mode for a block (`src_block`, `pos?`)
-- **logseq_exit_editing_mode** — exit editing mode (`select_block?`)
+All read output is normalized to a flat JSON shape and passed through the
+blacklist. Reads resolve `((block refs))` non-lossily (the resolved block's
+`uuid`/`status` is kept so you can act on it).
 
-### Pages
-- **logseq_create_page** — create a page (`page_name`, `properties?`,
-  `journal?`, `format?`, `create_first_block?`)
-- **logseq_get_page** — page metadata (`src_page`, `include_children?`)
-- **logseq_get_all_pages** — list all pages (`repo?`)
+### Find
+- **search** — full-text search over block content (`query`, `regex?`, `limit?`,
+  `case_sensitive?`, `exclude_journals?`). Uses ripgrep over `files_path` when
+  set, else a datascript content match.
+- **find_tasks** — task blocks by `markers?`, `tag?`, `under_tag?` (descendant),
+  `page?`, `priority?`, `limit?`.
+- **custom_query** — run a named query from the config (`name`, `inputs?`).
+- **list_custom_queries** — list the configured queries.
+- **datascript_query** — run a raw Datalog query (`query`, `inputs?`, `rules?`).
 
-### Content
-- **logseq_get_current_page** — active page/block — *no args*
-- **logseq_get_current_page_content** — current page block tree — *no args*
-- **logseq_get_editing_block_content** — content of the active block — *no args*
-- **logseq_get_page_content** — block tree of a page (`src_page`)
+### Read
+- **read_page** — a page as a normalized block tree (`page`, `depth?`).
+- **read_block** — a block and its children (`uuid`, `depth?`).
+
+### Write (agent namespace only)
+- **write_note** — create/append/replace a page under `agent_write_prefix`
+  (`subpath`, `content?`, `mode?`, `properties?`).
+- **set_page_properties** — set/remove page properties (`subpath`, `properties`;
+  a `null` value removes one).
+
+### Tasks
+- **set_task_status** — change only a task's marker (`uuid`, `status`); gated by
+  `[tasks].allow_status_change`.
+
+### Dynamic
+- **query_&lt;name&gt;** — each config query with `register_as_tool = true` is
+  exposed as its own tool.
 
 ## Development
 
