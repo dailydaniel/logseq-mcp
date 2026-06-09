@@ -9,19 +9,16 @@ resolve_depth = 2          # 0 = don't expand ((uuid)); page-refs always -> name
 
 [write]
 allow_agents_write_any = false
-agent_write_prefix = "agent"
+agent_write_prefix = "byAgent"   # the agent may only write under byAgent/
 
 [search]
 files_path = ""            # e.g. "/Users/you/LifeGraph"; empty = file-search off
 
 [blacklist]
-pages = ["api-key"]        # page + its subpages hidden; [[page]] mentions redacted
+pages = ["apikey"]         # page + its subpages hidden; [[apikey]] mentions redacted
 
 [tasks]
 allow_status_change = false
-
-[reading_list]
-namespace = "read"
 
 [audit_log]
 enabled = false

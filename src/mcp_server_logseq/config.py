@@ -5,8 +5,8 @@ queries live in external EDN files referenced from it. Secrets and connection
 URL come from the environment, never the config file.
 
 The server starts fine with no config file at all — everything falls back to
-safe defaults (read-mostly, agent writes forced to `agent/`, status changes and
-optional channels off).
+safe defaults (read-mostly, agent writes forced to `byAgent/`, status changes
+off).
 """
 
 from __future__ import annotations
@@ -72,7 +72,7 @@ class ReadCfg(_Section):
 
 class WriteCfg(_Section):
     allow_agents_write_any: bool = False
-    agent_write_prefix: str = "agent"
+    agent_write_prefix: str = "byAgent"
 
 
 class SearchCfg(_Section):
@@ -85,10 +85,6 @@ class BlacklistCfg(_Section):
 
 class TasksCfg(_Section):
     allow_status_change: bool = False
-
-
-class ReadingListCfg(_Section):
-    namespace: str = "read"
 
 
 class AuditLogCfg(_Section):
@@ -116,7 +112,6 @@ class _RawConfig(_Section):
     search: SearchCfg = Field(default_factory=SearchCfg)
     blacklist: BlacklistCfg = Field(default_factory=BlacklistCfg)
     tasks: TasksCfg = Field(default_factory=TasksCfg)
-    reading_list: Optional[ReadingListCfg] = None
     audit_log: Optional[AuditLogCfg] = None
     queries: dict[str, QueryCfg] = Field(default_factory=dict)
 
@@ -147,7 +142,6 @@ class AppConfig:
     search: SearchCfg
     blacklist: BlacklistCfg
     tasks: TasksCfg
-    reading_list: Optional[ReadingListCfg]
     audit_log: Optional[AuditLogCfg]
     queries: dict[str, CompiledQuery]
     config_dir: Optional[Path]
@@ -300,7 +294,6 @@ def load_config(path: Optional[Path]) -> AppConfig:
         search=raw.search,
         blacklist=raw.blacklist,
         tasks=raw.tasks,
-        reading_list=raw.reading_list,
         audit_log=raw.audit_log,
         queries=queries,
         config_dir=base_dir,

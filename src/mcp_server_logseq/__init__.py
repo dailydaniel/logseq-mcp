@@ -85,6 +85,7 @@ def main() -> None:
         server.app_config = load_config(cfg_path)
     except ConfigError as exc:
         parser.error(str(exc))
+    server.register_dynamic_tools()
 
     if args.transport == "streamable-http":
         _run_streamable_http(args.host, args.port, args.http_token)

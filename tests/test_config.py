@@ -23,12 +23,11 @@ def test_missing_file_uses_defaults(tmp_path: Path) -> None:
     cfg = load_config(tmp_path / "nope.toml")
     assert cfg.read.resolve_depth == 2
     assert cfg.write.allow_agents_write_any is False
-    assert cfg.write.agent_write_prefix == "agent"
+    assert cfg.write.agent_write_prefix == "byAgent"
     assert cfg.search.files_path == ""
     assert cfg.blacklist.pages == []
     assert cfg.tasks.allow_status_change is False
-    assert cfg.reading_list is None  # optional sections off when absent
-    assert cfg.audit_log is None
+    assert cfg.audit_log is None  # optional sections off when absent
     assert cfg.queries == {}
 
 
@@ -62,9 +61,6 @@ def test_full_sections(tmp_path: Path) -> None:
         [tasks]
         allow_status_change = true
 
-        [reading_list]
-        namespace = "read"
-
         [audit_log]
         enabled = true
         """,
@@ -76,15 +72,14 @@ def test_full_sections(tmp_path: Path) -> None:
     assert cfg.search.files_path == "/graph"
     assert cfg.blacklist.pages == ["api-key", "secret"]
     assert cfg.tasks.allow_status_change is True
-    assert cfg.reading_list is not None and cfg.reading_list.namespace == "read"
     assert cfg.audit_log is not None and cfg.audit_log.enabled is True
 
 
 def test_empty_optional_section_enables_defaults(tmp_path: Path) -> None:
-    p = _write(tmp_path, "config.toml", "[reading_list]\n")
+    p = _write(tmp_path, "config.toml", "[audit_log]\n")
     cfg = load_config(p)
-    assert cfg.reading_list is not None
-    assert cfg.reading_list.namespace == "read"
+    assert cfg.audit_log is not None
+    assert cfg.audit_log.enabled is False
 
 
 def test_unknown_key_rejected(tmp_path: Path) -> None:
