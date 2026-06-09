@@ -80,8 +80,15 @@ distinct secret from `LOGSEQ_API_TOKEN`:
 
 ## Docker
 
+Build once:
+
 ```bash
 docker build -t logseq-mcp .
+```
+
+Quick try (ephemeral — `--rm` removes the container on stop):
+
+```bash
 docker run --rm -p 8000:8000 \
   -e LOGSEQ_API_TOKEN=<logseq-token> \
   -e LOGSEQ_MCP_HTTP_TOKEN=<client-secret> \
@@ -89,8 +96,26 @@ docker run --rm -p 8000:8000 \
   logseq-mcp
 ```
 
-The container clock is UTC by default; set `-e TZ=<zone>` so audit-log timestamps
-use your local time (the image bundles `tzdata`).
+Persistent deploy (e.g. a headless Mac mini) — run once; `--restart` brings it
+back after reboots:
+
+```bash
+docker run -d --name logseq-mcp --restart unless-stopped -p 8000:8000 \
+  -e LOGSEQ_API_TOKEN=<logseq-token> \
+  -e LOGSEQ_MCP_HTTP_TOKEN=<client-secret> \
+  -e TZ=Europe/Moscow \
+  -e LOGSEQ_MCP_CONFIG=/cfg/config.toml \
+  -v /path/to/config-dir:/cfg:ro \
+  -v "/path/to/your/graph:/graph:ro" \
+  logseq-mcp
+```
+
+- `-v .../config-dir:/cfg` — folder holding your `config.toml` (+ `queries/`,
+  `rules/`); set `files_path = "/graph"` in it to enable file search. Omit both
+  the mount and `LOGSEQ_MCP_CONFIG` to run on defaults.
+- `-v .../graph:/graph` — your Logseq graph folder (read-only), for file search.
+- `-e TZ=<zone>` — local time for audit-log timestamps (image bundles `tzdata`;
+  the clock is UTC otherwise).
 
 The container serves Streamable HTTP on port 8000 and talks to a Logseq running
 on the **host**. On Docker Desktop (macOS/Windows) the default
