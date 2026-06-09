@@ -7,6 +7,10 @@ only inside the agent's own namespace plus a narrow task-status channel.
 
 Built on **FastMCP** (the high-level API of the official `mcp` package).
 
+<a href="https://glama.ai/mcp/servers/@dailydaniel/logseq-mcp">
+  <img width="380" height="200" src="https://glama.ai/mcp/servers/@dailydaniel/logseq-mcp/badge" alt="Logseq Server MCP server" />
+</a>
+
 > Targets the **file/Markdown ("OG") version** of Logseq. The newer DB (SQLite)
 > version changed the underlying schema; some methods may behave differently
 > there.
