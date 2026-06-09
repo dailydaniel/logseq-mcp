@@ -16,8 +16,9 @@
 
 FROM python:3.12-slim
 
-# ripgrep powers the file-backed search backend.
-RUN apt-get update && apt-get install -y --no-install-recommends ripgrep \
+# ripgrep powers the file-backed search backend; tzdata lets `-e TZ=...` resolve
+# named timezones so audit-log timestamps use local time, not UTC.
+RUN apt-get update && apt-get install -y --no-install-recommends ripgrep tzdata \
     && rm -rf /var/lib/apt/lists/*
 
 # uv for fast, reproducible installs (from the official distroless image).

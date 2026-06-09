@@ -85,8 +85,12 @@ docker build -t logseq-mcp .
 docker run --rm -p 8000:8000 \
   -e LOGSEQ_API_TOKEN=<logseq-token> \
   -e LOGSEQ_MCP_HTTP_TOKEN=<client-secret> \
+  -e TZ=Europe/Moscow \
   logseq-mcp
 ```
+
+The container clock is UTC by default; set `-e TZ=<zone>` so audit-log timestamps
+use your local time (the image bundles `tzdata`).
 
 The container serves Streamable HTTP on port 8000 and talks to a Logseq running
 on the **host**. On Docker Desktop (macOS/Windows) the default
