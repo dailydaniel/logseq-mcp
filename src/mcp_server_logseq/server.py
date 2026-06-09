@@ -14,6 +14,7 @@ from pydantic import Field
 
 from .blacklist import Blacklist
 from .client import LogseqClient
+from . import audit
 from . import filesearch as fs
 from . import queries as q
 from . import resolve as rsv
@@ -307,7 +308,9 @@ async def write_note(
     properties: Annotated[Optional[dict], Field(description="Page properties (set on creation)")] = None,
 ) -> dict:
     """Create or update a page in the agent's namespace."""
-    return await w.write_note(_cfg(), get_client(), subpath, content, mode, properties)
+    res = await w.write_note(_cfg(), get_client(), subpath, content, mode, properties)
+    await audit.log_write(_cfg(), get_client(), "wrote", f"[[{res['page']}]]")
+    return res
 
 
 @mcp.tool()
@@ -316,7 +319,9 @@ async def set_page_properties(
     properties: Annotated[dict, Field(description="Properties to set; value null removes one")],
 ) -> dict:
     """Set or remove properties on an agent-namespace page."""
-    return await w.set_page_properties(_cfg(), get_client(), subpath, properties)
+    res = await w.set_page_properties(_cfg(), get_client(), subpath, properties)
+    await audit.log_write(_cfg(), get_client(), "set properties on", f"[[{res['page']}]]")
+    return res
 
 
 @mcp.tool()
@@ -325,7 +330,9 @@ async def set_task_status(
     status: Annotated[str, Field(description="New marker, e.g. TODO/DOING/DONE")],
 ) -> dict:
     """Change only a task block's status marker (text untouched)."""
-    return await w.set_task_status(_cfg(), get_client(), uuid, status)
+    res = await w.set_task_status(_cfg(), get_client(), uuid, status)
+    await audit.log_write(_cfg(), get_client(), "moved task", f"(({uuid})) to {res['new_status']}")
+    return res
 
 
 # ---------------------------------------------------------------------------
