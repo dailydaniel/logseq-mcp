@@ -21,10 +21,6 @@ Built on **FastMCP** (the high-level API of the official `mcp` package).
   (Settings → Features → *HTTP APIs server*, then start it from the 🔌 menu).
 - An **authorization token** created in the HTTP API server settings.
 
-<a href="https://glama.ai/mcp/servers/@dailydaniel/logseq-mcp">
-  <img width="380" height="200" src="https://glama.ai/mcp/servers/@dailydaniel/logseq-mcp/badge" alt="Logseq Server MCP server" />
-</a>
-
 ## Usage with Claude Desktop
 
 ```json
