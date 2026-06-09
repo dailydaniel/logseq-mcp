@@ -14,6 +14,7 @@ from pydantic import Field
 
 from .blacklist import Blacklist
 from .client import LogseqClient
+from . import filesearch as fs
 from . import queries as q
 from . import resolve as rsv
 from . import writes as w
@@ -72,38 +73,101 @@ async def _finalize(blocks: list[dict], depth: int) -> list[dict]:
 _PULL = "[* {:block/page [:block/name :block/journal-day :block/original-name]}]"
 
 
+def _flatten(blocks: list[dict]):
+    for b in blocks:
+        yield b
+        yield from _flatten(b.get("children") or [])
+
+
+async def _search_datascript(query: str, regex: bool, case_sensitive: bool, exclude_journals: bool) -> list[dict]:
+    import re as _re
+
+    from .config import _edn_dumps
+
+    # Logseq's datascript sandbox allows includes?/re-find/re-pattern but NOT
+    # lower-case; case-insensitive uses a (?i) regex. No nested calls per clause.
+    if case_sensitive and not regex:
+        match = f"[(clojure.string/includes? ?c {_edn_dumps(query)})]"
+    else:
+        body = query if regex else _re.escape(query)
+        pat = _edn_dumps(("" if case_sensitive else "(?i)") + body)
+        match = f"[(re-pattern {pat}) ?re] [(re-find ?re ?c)]"
+    clauses = f"[?b :block/content ?c] {match}"
+    if exclude_journals:
+        clauses += " [?b :block/page ?pg] (not-join [?pg] [?pg :block/journal-day ?jd])"
+    dq = f"[:find (pull ?b {_PULL}) :where {clauses}]"
+    rows = await get_client().call("logseq.DB.datascriptQuery", [dq])
+    blocks = [normalize_block(b) for b in q.flatten_pull_rows(rows or [])]
+    return await _finalize(blocks, 0)
+
+
+async def _resolve_journal_pages(days: list[int]) -> list[str]:
+    if not days:
+        return []
+    dset = "#{" + " ".join(str(d) for d in days) + "}"
+    dq = (
+        "[:find ?name :where [?p :block/journal-day ?d] "
+        f"[(contains? {dset} ?d)] [?p :block/original-name ?name]]"
+    )
+    rows = await get_client().call("logseq.DB.datascriptQuery", [dq])
+    return [r[0] for r in (rows or []) if r]
+
+
+async def _search_files(query: str, regex: bool, case_sensitive: bool, exclude_journals: bool, top_k: int = 50) -> list[dict]:
+    files_path = _cfg().search.files_path
+    bl = _blacklist()
+    candidate_files = fs.find_candidate_files(files_path, query, regex, case_sensitive)
+
+    pages: list[str] = []
+    journal_days: list[int] = []
+    for f in candidate_files:
+        decoded = fs.decode_candidate(f, files_path)
+        if not decoded:
+            continue
+        kind, value = decoded
+        if kind == "journal":
+            if not exclude_journals:
+                journal_days.append(int(value))  # type: ignore[arg-type]
+        elif not bl.is_page_excluded(str(value)):
+            pages.append(str(value))
+
+    pages += await _resolve_journal_pages(journal_days)
+    seen: set[str] = set()
+    ordered = [p for p in pages if not (p in seen or seen.add(p))][:top_k]
+
+    matcher = fs.build_matcher(query, regex, case_sensitive)
+    results: list[dict] = []
+    for page in ordered:
+        tree = await get_client().call("logseq.Editor.getPageBlocksTree", [page]) or []
+        blocks = await _finalize([normalize_block(b) for b in tree], 0)
+        for b in _flatten(blocks):
+            if not b.get("redacted") and matcher(b.get("text") or ""):
+                results.append({"uuid": b["uuid"], "page": page, "status": b["status"], "text": b["text"]})
+    return results
+
+
 @mcp.tool()
 async def search(
     query: Annotated[str, Field(description="Text or regex to search block content for")],
     regex: Annotated[bool, Field(description="Treat query as a regex")] = False,
     limit: Annotated[Optional[int], Field(description="Max results")] = None,
     case_sensitive: Annotated[bool, Field(description="Case-sensitive match")] = False,
+    exclude_journals: Annotated[bool, Field(description="Omit journal/daily pages from results")] = False,
 ) -> dict:
     """Full-text search across block content in the graph."""
-    import re as _re
-
-    from .config import _edn_dumps
-
-    # Logseq's datascript sandbox allows clojure.string/includes? and re-find/
-    # re-pattern, but NOT lower-case — so case-insensitive uses a (?i) regex.
-    # Nested function calls aren't allowed in one clause, so bind the pattern.
-    if case_sensitive and not regex:
-        where = f"[?b :block/content ?c] [(clojure.string/includes? ?c {_edn_dumps(query)})]"
+    use_files = bool(_cfg().search.files_path) and fs.ripgrep_path() is not None
+    if use_files:
+        blocks_or_results = await _search_files(query, regex, case_sensitive, exclude_journals)
+        results = blocks_or_results
     else:
-        body = query if regex else _re.escape(query)
-        pat = _edn_dumps(("" if case_sensitive else "(?i)") + body)
-        where = f"[?b :block/content ?c] [(re-pattern {pat}) ?re] [(re-find ?re ?c)]"
-    dq = f"[:find (pull ?b {_PULL}) :where {where}]"
-
-    rows = await get_client().call("logseq.DB.datascriptQuery", [dq])
-    blocks = [normalize_block(b) for b in q.flatten_pull_rows(rows or [])]
-    blocks = await _finalize(blocks, 0)
-    results = [
-        {"uuid": b["uuid"], "page": b["page"], "status": b["status"], "text": b["text"]}
-        for b in blocks
-        if not b.get("redacted")
-    ]
-    return {"count": len(results), "results": results[: (limit or 50)]}
+        blocks = await _search_datascript(query, regex, case_sensitive, exclude_journals)
+        results = [
+            {"uuid": b["uuid"], "page": b["page"], "status": b["status"], "text": b["text"]}
+            for b in blocks
+            if not b.get("redacted")
+        ]
+    backend = "files" if use_files else "datascript"
+    return {"backend": backend, "count": len(results), "results": results[: (limit or 50)]}
 
 
 @mcp.tool()

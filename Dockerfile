@@ -16,6 +16,10 @@
 
 FROM python:3.12-slim
 
+# ripgrep powers the file-backed search backend.
+RUN apt-get update && apt-get install -y --no-install-recommends ripgrep \
+    && rm -rf /var/lib/apt/lists/*
+
 # uv for fast, reproducible installs (from the official distroless image).
 COPY --from=ghcr.io/astral-sh/uv:0.5.26 /uv /uvx /bin/
 
