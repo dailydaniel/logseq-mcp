@@ -16,6 +16,7 @@ from .server import config, mcp
 def _run_streamable_http(host: str, port: int, http_token: str | None) -> None:
     """Serve over Streamable HTTP, gated by a bearer token."""
     import uvicorn
+    from mcp.server.transport_security import TransportSecuritySettings
 
     from .auth import BearerAuthMiddleware
 
@@ -28,6 +29,12 @@ def _run_streamable_http(host: str, port: int, http_token: str | None) -> None:
 
     mcp.settings.host = host
     mcp.settings.port = port
+    # The SDK auto-enables a localhost-only DNS-rebinding guard (it assumes a
+    # local server) which 421s remote clients. We sit behind a bearer token (and
+    # typically a VPN like Tailscale), so disable it for the HTTP transport.
+    mcp.settings.transport_security = TransportSecuritySettings(
+        enable_dns_rebinding_protection=False
+    )
 
     app = mcp.streamable_http_app()
     app.add_middleware(BearerAuthMiddleware, token=http_token)
