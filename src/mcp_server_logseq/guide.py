@@ -19,10 +19,12 @@ access to a Logseq graph: **read broadly, write only inside `{prefix}/`.**
 - `list_pages(prefix?, depth?)` — list page names by namespace prefix (structure,
   NOT block content). Use to discover the children of a namespace.
 - `read_page(page, depth?)` / `read_block(uuid, depth?)` — content of one page/block.
-- `find_tasks(markers?, tag?, under_tag?, page?, priority?, limit?)` — task blocks.
+- `find_tasks(markers?, tag?, under_tag?, page?, priority?, scope?, agent?, limit?)`
+  — task blocks. `scope`: `all` | `agent` (only agent-owned) | `human` (exclude them).
 - `datascript_query(query, inputs?, rules?)` — raw Datalog (advanced).
 - `custom_query` / `list_custom_queries` — saved queries.
-- `write_note` / `set_page_properties` — write under `{prefix}/` only.
+- `write_note` / `set_page_properties` — write notes under `{prefix}/` only.
+- `create_task(...)` — the ONLY way to make a task (see Tasks below).
 - `set_task_status(uuid, status)` — change a task's marker.
 
 ## Discovering what's in a namespace
@@ -54,11 +56,30 @@ NOT mean it is empty. Use `list_pages(prefix="{prefix}")` to see the child pages
 - `tag` / `under_tag` match task BLOCKS that reference the page via `:block/refs`.
   If no task references it, you get 0 — that is a correct answer, not a bug.
 - `page` matches blocks DIRECTLY on that page, not its namespace descendants.
+- `scope="agent"` returns only tasks owned by an agent (they reference `{prefix}/...`);
+  `agent="hermes"` narrows to one. `scope="human"` excludes all agent tasks.
 
-## Writing
+## Tasks — always via create_task (write_note refuses task markers)
+`write_note` rejects any content that starts with a task marker, so the ONLY way to
+make a task is `create_task`, which enforces the structure:
+
+    create_task(title, agent, project?, marker="TODO", priority?, tags?,
+                plan_page?, blocks_on?, on_page?)
+
+- It produces a block like:
+  `TODO [#A] #task <title> [[{prefix}/<agent>]] [[<project>]] [[<plan_page>]] ((<blocks_on>))`
+- The block lives in the agent namespace (default page `{prefix}/<agent>/tasks`);
+  it *references* the project page (read-only) — it does not write there.
+- `agent` is required — it is the ownership link that makes `find_tasks(scope=...)` work.
+- `blocks_on` is a block UUID rendered as `((uuid))` — a lightweight dependency edge.
+- Markers must be real Logseq markers (TODO/DOING/NOW/LATER/DONE/WAITING/...). There
+  is no `PENDING` — use `WAITING` or `LATER`.
+
+## Writing notes
 - `write_note(subpath="plan")` always lands under `{prefix}/` (-> `{prefix}/plan`).
   Passing an already-prefixed subpath is fine (no double prefix). You cannot edit
-  pages outside `{prefix}/` — an unprefixed subpath is rewritten into it.
+  pages outside `{prefix}/` — an unprefixed subpath is rewritten into it. Content
+  starting with a task marker is rejected — use `create_task` for tasks.
 """
 
 

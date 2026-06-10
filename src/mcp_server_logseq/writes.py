@@ -11,7 +11,7 @@ from typing import Any, Optional
 
 from .client import LogseqClient
 from .config import AppConfig
-from .normalize import normalize_block, rewrite_marker, MARKERS
+from .normalize import normalize_block, parse_marker, rewrite_marker, MARKERS
 
 
 class WriteError(Exception):
@@ -65,6 +65,11 @@ async def write_note(
 ) -> dict:
     if mode not in ("append", "replace"):
         raise WriteError("mode must be 'append' or 'replace'")
+    if content and parse_marker(content)[0] is not None:
+        raise WriteError(
+            "content starts with a task marker — create tasks via create_task, not "
+            "write_note (write_note is for notes; create_task enforces task structure)"
+        )
     name = resolve_agent_path(config, subpath)
 
     page, existed = await _ensure_page(
@@ -89,6 +94,89 @@ async def write_note(
         "already_existed": existed,
         "appended_uuid": appended_uuid,
     }
+
+
+def _tag_token(tag: str) -> str:
+    """Render a tag, using #[[...]] form when it contains spaces."""
+    t = tag.strip().lstrip("#")
+    return f"#[[{t}]]" if " " in t else f"#{t}"
+
+
+def build_task_content(
+    *,
+    title: str,
+    marker: str,
+    priority: Optional[str],
+    agent_ref: str,
+    base_tag: Optional[str],
+    tags: Optional[list[str]],
+    project: Optional[str],
+    plan_page: Optional[str],
+    blocks_on: Optional[str],
+) -> str:
+    """Assemble the canonical task block string (pure)."""
+    parts = [marker]
+    if priority:
+        parts.append(f"[#{priority}]")
+    for t in ([base_tag] if base_tag else []) + (tags or []):
+        if t and t.strip():
+            parts.append(_tag_token(t))
+    parts.append(title.strip())
+    parts.append(f"[[{agent_ref}]]")
+    if project:
+        parts.append(f"[[{project.strip().strip('[]')}]]")
+    if plan_page:
+        parts.append(f"[[{plan_page.strip().strip('[]')}]]")
+    if blocks_on:
+        parts.append(f"(({blocks_on.strip('()')}))")
+    return " ".join(parts)
+
+
+async def create_task(
+    config: AppConfig,
+    client: LogseqClient,
+    title: str,
+    agent: str,
+    project: Optional[str] = None,
+    marker: str = "TODO",
+    priority: Optional[str] = None,
+    tags: Optional[list[str]] = None,
+    plan_page: Optional[str] = None,
+    blocks_on: Optional[str] = None,
+    on_page: Optional[str] = None,
+) -> dict:
+    """Create a structured task block inside the agent namespace.
+
+    The block lives under the agent prefix (write-confined) but references the
+    executor agent's page and, optionally, a project / plan page / blocking block.
+    """
+    if not (title or "").strip():
+        raise WriteError("title is required")
+    marker = (marker or "TODO").strip().upper()
+    if marker not in MARKERS:
+        raise WriteError(f"invalid marker {marker!r}; one of {', '.join(MARKERS)}")
+    if priority:
+        priority = priority.strip().upper().lstrip("[#").rstrip("]")
+        if priority not in ("A", "B", "C"):
+            raise WriteError("priority must be A, B or C")
+    agent = (agent or "").strip().strip("/")
+    if not agent:
+        raise WriteError("agent (executor) is required")
+
+    prefix = config.write.agent_write_prefix
+    agent_ref = f"{prefix}/{agent}"
+    page = resolve_agent_path(config, on_page or f"{agent}/tasks")
+
+    content = build_task_content(
+        title=title, marker=marker, priority=priority, agent_ref=agent_ref,
+        base_tag="task", tags=tags, project=project, plan_page=plan_page,
+        blocks_on=blocks_on,
+    )
+
+    await _ensure_page(client, page, None, create_first_block=False)
+    block = await client.call("logseq.Editor.appendBlockInPage", [page, content])
+    uuid = block.get("uuid") if isinstance(block, dict) else None
+    return {"page": page, "uuid": uuid, "marker": marker, "content": content}
 
 
 async def set_page_properties(

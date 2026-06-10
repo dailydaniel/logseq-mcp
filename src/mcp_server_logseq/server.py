@@ -180,9 +180,14 @@ async def find_tasks(
     page: Annotated[Optional[str], Field(description="Restrict to this page")] = None,
     priority: Annotated[Optional[str], Field(description="Priority A/B/C")] = None,
     limit: Annotated[Optional[int], Field(description="Max results")] = None,
+    scope: Annotated[str, Field(description="all | agent | human — agent tasks reference the agent namespace; 'human' excludes them")] = "all",
+    agent: Annotated[Optional[str], Field(description="With scope=agent, narrow to this agent (tasks referencing [[<prefix>/<agent>]])")] = None,
 ) -> dict:
-    """Find task blocks by marker, tag, priority or page."""
+    """Find task blocks by marker, tag, priority, page or agent-ownership scope."""
     from .config import _edn_dumps
+
+    if scope not in ("all", "agent", "human"):
+        raise ValueError("scope must be 'all', 'agent' or 'human'")
 
     mk = markers or ["TODO", "DOING", "NOW", "LATER"]
     mset = "#{" + " ".join(_edn_dumps(m.upper()) for m in mk) + "}"
@@ -204,6 +209,22 @@ async def find_tasks(
         clauses.append(f"[?b :block/page ?pg] [?pg :block/name {_edn_dumps(page.lower())}]")
     if priority:
         clauses.append(f"[?b :block/priority {_edn_dumps(priority.upper())}]")
+
+    if scope != "all":
+        pre = canon_page_name(_cfg().write.agent_write_prefix)
+        if scope == "agent" and agent:
+            target = _edn_dumps(f"{pre}/{canon_page_name(agent)}")
+            clauses.append(f"[?b :block/refs ?arp] [?arp :block/name {target}]")
+        elif scope == "agent":
+            clauses.append(
+                f"[?b :block/refs ?arp] [?arp :block/name ?arn] "
+                f"[(clojure.string/starts-with? ?arn {_edn_dumps(pre + '/')})]"
+            )
+        else:  # human — exclude agent-owned tasks
+            clauses.append(
+                f"(not-join [?b] [?b :block/refs ?arp] [?arp :block/name ?arn] "
+                f"[(clojure.string/starts-with? ?arn {_edn_dumps(pre + '/')})])"
+            )
 
     head = "[:find (pull ?b " + _PULL + ") :in $ %" if rules else "[:find (pull ?b " + _PULL + ")"
     dq = f"{head} :where " + " ".join(clauses) + "]"
@@ -366,6 +387,30 @@ async def write_note(
     """Create or update a page in the agent's namespace."""
     res = await w.write_note(_cfg(), get_client(), subpath, content, mode, properties)
     await audit.log_write(_cfg(), get_client(), "wrote", f"[[{res['page']}]]")
+    return res
+
+
+@mcp.tool()
+async def create_task(
+    title: Annotated[str, Field(description="Task text")],
+    agent: Annotated[str, Field(description="Executor agent name, e.g. 'hermes' -> link [[<prefix>/hermes]]")],
+    project: Annotated[Optional[str], Field(description="Project page the task belongs to, e.g. 'Frisbee/Tech Support Bot'")] = None,
+    marker: Annotated[str, Field(description="Task marker (TODO/DOING/NOW/LATER/WAITING/...)")] = "TODO",
+    priority: Annotated[Optional[str], Field(description="Priority A/B/C")] = None,
+    tags: Annotated[Optional[list[str]], Field(description="Extra category tags, e.g. ['plan']")] = None,
+    plan_page: Annotated[Optional[str], Field(description="Detailed plan page, e.g. 'byAgent/hermes/proj/plan'")] = None,
+    blocks_on: Annotated[Optional[str], Field(description="UUID of a blocking/parent task block -> ((uuid))")] = None,
+    on_page: Annotated[Optional[str], Field(description="Agent-namespace page to hold the task (default <agent>/tasks)")] = None,
+) -> dict:
+    """Create a structured task. This is the ONLY way to make a task — write_note
+    rejects task-marker content. The block lives in the agent namespace, carries a
+    `#task` tag and a link to the executor agent, and optionally links a project,
+    a detail page, and a blocking block."""
+    res = await w.create_task(
+        _cfg(), get_client(), title, agent, project, marker, priority, tags,
+        plan_page, blocks_on, on_page,
+    )
+    await audit.log_write(_cfg(), get_client(), "created task", f"(({res['uuid']})) on [[{res['page']}]]")
     return res
 
 
