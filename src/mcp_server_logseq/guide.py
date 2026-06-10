@@ -80,6 +80,9 @@ make a task is `create_task`, which enforces the structure:
   Passing an already-prefixed subpath is fine (no double prefix). You cannot edit
   pages outside `{prefix}/` — an unprefixed subpath is rewritten into it. Content
   starting with a task marker is rejected — use `create_task` for tasks.
+- `mode`: `append` adds a block; `replace` swaps the page content but **keeps page
+  properties** (to remove a property use `set_page_properties` with a null value).
+  write_note appends a block to a page — it never edits one block in place.
 """
 
 

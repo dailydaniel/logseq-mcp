@@ -381,7 +381,7 @@ async def read_block(
 async def write_note(
     subpath: Annotated[str, Field(description="Page path within the agent namespace")],
     content: Annotated[Optional[str], Field(description="Block content to add (markdown)")] = None,
-    mode: Annotated[str, Field(description="append | replace")] = "append",
+    mode: Annotated[str, Field(description="append | replace (swaps page content, keeps page properties; remove a property via set_page_properties null)")] = "append",
     properties: Annotated[Optional[dict], Field(description="Page properties (set on creation)")] = None,
 ) -> dict:
     """Create or update a page in the agent's namespace."""

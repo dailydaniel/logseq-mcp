@@ -76,8 +76,13 @@ async def write_note(
         client, name, properties, create_first_block=bool(properties)
     )
 
+    preserved: dict = {}
     if mode == "replace" and existed:
         tree = await client.call("logseq.Editor.getPageBlocksTree", [name]) or []
+        # Replace swaps content but keeps page properties (they live on the first
+        # block); to remove a property, use set_page_properties(..., {prop: null}).
+        if tree:
+            preserved = tree[0].get("properties") or {}
         for blk in tree:
             uuid = blk.get("uuid")
             if uuid:
@@ -89,10 +94,21 @@ async def write_note(
         if isinstance(block, dict):
             appended_uuid = block.get("uuid")
 
+    # Re-attach preserved page properties to the new first block (mode="replace").
+    if preserved:
+        holder = appended_uuid
+        if holder is None:
+            block = await client.call("logseq.Editor.appendBlockInPage", [name, ""])
+            holder = block.get("uuid") if isinstance(block, dict) else None
+        if holder:
+            for key, value in preserved.items():
+                await client.call("logseq.Editor.upsertBlockProperty", [holder, key, value])
+
     return {
         "page": name,
         "already_existed": existed,
         "appended_uuid": appended_uuid,
+        "kept_properties": list(preserved.keys()),
     }
 
 
