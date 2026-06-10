@@ -83,6 +83,9 @@ make a task is `create_task`, which enforces the structure:
 - `mode`: `append` adds a block; `replace` swaps the page content but **keeps page
   properties** (to remove a property use `set_page_properties` with a null value).
   write_note appends a block to a page — it never edits one block in place.
+- `write_note`'s `properties` argument only applies when the page is first CREATED;
+  on an existing page it is **ignored**. To add or change properties on an existing
+  page use `set_page_properties` (it upserts; a null value removes a property).
 """
 
 
