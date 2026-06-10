@@ -160,9 +160,18 @@ blacklist. Reads resolve `((block refs))` non-lossily (the resolved block's
   set, else a datascript content match.
 - **find_tasks** — task blocks by `markers?`, `tag?`, `under_tag?` (descendant),
   `page?`, `priority?`, `limit?`.
+- **list_pages** — page names under a namespace `prefix?` (`depth?` limits levels).
+  Discovers a namespace's child pages, which are separate pages a parent's
+  `read_page` won't show. Structure only, not block content.
 - **custom_query** — run a named query from the config (`name`, `inputs?`).
 - **list_custom_queries** — list the configured queries.
 - **datascript_query** — run a raw Datalog query (`query`, `inputs?`, `rules?`).
+
+### Guide
+- **get_logseq_guide** — returns the authoritative guide for querying/writing this
+  graph (verified Datalog gotchas: lowercase names, prefix descendants, marker and
+  journal-day types, tags vs refs, read/write scoping). A single source of truth
+  co-located with the server, so agents don't re-derive (and mis-derive) behaviour.
 
 ### Read
 - **read_page** — a page as a normalized block tree (`page`, `depth?`).

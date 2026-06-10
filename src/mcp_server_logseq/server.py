@@ -12,7 +12,7 @@ from typing import Annotated, Any, Optional
 from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 
-from .blacklist import Blacklist
+from .blacklist import Blacklist, canon_page_name
 from .client import LogseqClient
 from . import audit
 from . import filesearch as fs
@@ -20,6 +20,7 @@ from . import queries as q
 from . import resolve as rsv
 from . import writes as w
 from .config import AppConfig, CompiledQuery
+from .guide import render_guide
 from .normalize import normalize_block
 
 # ---------------------------------------------------------------------------
@@ -212,6 +213,61 @@ async def find_tasks(
     blocks = await _finalize(blocks, _read_depth(None))
     blocks = [b for b in blocks if not b.get("redacted")]
     return {"count": len(blocks), "tasks": blocks[: (limit or 100)]}
+
+
+def _filter_page_rows(rows: list[Any], pre: str, depth: Optional[int], bl: Blacklist) -> list[dict]:
+    """Pure: turn raw [name, orig] rows into blacklist/depth-filtered page entries."""
+    out: list[dict] = []
+    for row in rows:
+        if not isinstance(row, list) or len(row) < 2:
+            continue
+        name, orig = row[0], row[1]
+        if not isinstance(name, str) or not isinstance(orig, str):
+            continue
+        if bl.is_page_excluded(orig):
+            continue
+        remainder = name[len(pre) + 1:] if pre else name
+        segs = [s for s in remainder.split("/") if s]
+        if pre and not segs:
+            continue  # the bare prefix page itself is not one of its descendants
+        if depth is not None and len(segs) > max(0, depth):
+            continue
+        out.append({"name": orig})
+    out.sort(key=lambda e: e["name"].lower())
+    return out
+
+
+@mcp.tool()
+async def list_pages(
+    prefix: Annotated[str, Field(description="Namespace prefix; returns its descendant pages. Empty = all pages.")] = "",
+    depth: Annotated[Optional[int], Field(description="Limit namespace levels below the prefix (1 = direct children). Default: unlimited.")] = None,
+) -> dict:
+    """List page names under a namespace prefix (structure, not block content).
+
+    Namespace children are separate pages, so read_page on a parent shows none of
+    them; use this to discover them. Matches the full lowercased ``:block/name``.
+    """
+    from .config import _edn_dumps
+
+    pre = canon_page_name(prefix)
+    where = ["[?p :block/name ?name]", "[?p :block/original-name ?orig]"]
+    if pre:
+        where.append(f"[(clojure.string/starts-with? ?name {_edn_dumps(pre + '/')})]")
+    dq = "[:find ?name ?orig :where " + " ".join(where) + "]"
+    rows = await q.run_datascript(get_client(), dq)
+    pages = _filter_page_rows(rows, pre, depth, _blacklist())
+    return {"prefix": pre, "count": len(pages), "pages": pages}
+
+
+@mcp.tool()
+async def get_logseq_guide() -> dict:
+    """Return the authoritative guide for querying and writing this Logseq graph.
+
+    Read this once before using the other tools — it covers the verified Datalog
+    gotchas (lowercase names, prefix descendants, marker/journal-day types, tags vs
+    refs, read/write scoping) so you don't have to rediscover them.
+    """
+    return {"guide": render_guide(_cfg().write.agent_write_prefix)}
 
 
 @mcp.tool()
