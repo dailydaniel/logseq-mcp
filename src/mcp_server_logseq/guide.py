@@ -89,6 +89,10 @@ make a task is `create_task`, which enforces the structure:
 - `write_note`'s `properties` argument only applies when the page is first CREATED;
   on an existing page it is **ignored**. To add or change properties on an existing
   page use `set_page_properties` (it upserts; a null value removes a property).
+- A property **value** containing `[[Page]]` or `#tag` becomes a real graph ref:
+  `set_page_properties(.., {"project": "[[Some Page]]"})` shows up in that page's
+  linked references — use it for structured links between pages. Only bare values
+  (`status:: unread`, a word-list `tags:: a, b`) stay plain strings.
 
 ## Editing one block
 - `edit_block(uuid, old_content, new_content)` replaces a block's whole content.
