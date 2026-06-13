@@ -26,6 +26,8 @@ access to a Logseq graph: **read broadly, write only inside `{prefix}/`.**
 - `write_note` / `set_page_properties` — write notes under `{prefix}/` only.
 - `create_task(...)` — the ONLY way to make a task (see Tasks below).
 - `set_task_status(uuid, status)` — change a task's marker.
+- `edit_block(uuid, old_content, new_content)` — replace ONE block's content
+  in place (read it first; namespace-confined). See "Editing one block".
 
 ## Discovering what's in a namespace
 A namespace parent page (e.g. `{prefix}`) usually has **no blocks of its own** —
@@ -82,10 +84,21 @@ make a task is `create_task`, which enforces the structure:
   starting with a task marker is rejected — use `create_task` for tasks.
 - `mode`: `append` adds a block; `replace` swaps the page content but **keeps page
   properties** (to remove a property use `set_page_properties` with a null value).
-  write_note appends a block to a page — it never edits one block in place.
+  write_note appends a block to a page; to change ONE existing block in place use
+  `edit_block` (below).
 - `write_note`'s `properties` argument only applies when the page is first CREATED;
   on an existing page it is **ignored**. To add or change properties on an existing
   page use `set_page_properties` (it upserts; a null value removes a property).
+
+## Editing one block
+- `edit_block(uuid, old_content, new_content)` replaces a block's whole content.
+  Read the block first (`read_page`/`read_block`) and pass its EXACT current content
+  as `old_content` — the edit is rejected if it doesn't match (you never read it, or
+  it changed meanwhile). This is the block analogue of a file edit's old/new match and
+  guards against clobbering a concurrent change.
+- Like other content writes it is confined to `{prefix}/`: a uuid on a page outside
+  the agent namespace is refused. To change a task's status marker use
+  `set_task_status`, not `edit_block`.
 """
 
 

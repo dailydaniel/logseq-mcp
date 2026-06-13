@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from .blacklist import canon_page_name
 from .client import LogseqClient
 from .config import AppConfig
 from .normalize import normalize_block, parse_marker, rewrite_marker, MARKERS
@@ -221,6 +222,94 @@ async def set_page_properties(
             changed[key] = value
 
     return {"page": name, "already_existed": existed, "properties": changed}
+
+
+async def _block_page_name(client: LogseqClient, block: dict) -> Optional[str]:
+    """Best-effort page name for a block from getBlock (page is usually `{id}`)."""
+    page = block.get("page")
+    pid: Optional[int] = None
+    if isinstance(page, dict):
+        name = page.get("original-name") or page.get("originalName") or page.get("name")
+        if name:
+            return name
+        raw_id = page.get("id")
+        if isinstance(raw_id, int):
+            pid = raw_id
+    elif isinstance(page, int):
+        pid = page
+    if pid is not None:
+        pg = await client.call("logseq.Editor.getPage", [pid])
+        if isinstance(pg, dict):
+            return pg.get("original-name") or pg.get("originalName") or pg.get("name")
+    return None
+
+
+async def assert_block_in_agent_ns(
+    config: AppConfig, client: LogseqClient, block: dict
+) -> str:
+    """Return the block's page name, raising if it is outside the agent namespace.
+
+    The path-confinement that `resolve_agent_path` gives subpath-addressed writes
+    does NOT apply to uuid-addressed writes (a uuid can point anywhere in the
+    graph). Any uuid-addressed *content* write must call this gate so it cannot
+    rewrite blocks outside `byAgent`. (The marker-only `set_task_status` channel is
+    deliberately exempt — it can only touch a leading task marker.)
+    """
+    name = await _block_page_name(client, block)
+    if not name:
+        raise WriteError("could not determine the block's page; refusing to write")
+    if config.write.allow_agents_write_any:
+        return name
+    prefix = canon_page_name(config.write.agent_write_prefix)
+    canon = canon_page_name(name)
+    if canon == prefix or canon.startswith(prefix + "/"):
+        return name
+    raise WriteError(
+        f"block is on page {name!r}, outside the agent namespace "
+        f"{config.write.agent_write_prefix!r}/ — edit_block is namespace-confined"
+    )
+
+
+async def edit_block(
+    config: AppConfig,
+    client: LogseqClient,
+    uuid: str,
+    old_content: str,
+    new_content: str,
+) -> dict:
+    """Replace a block's whole content, confined to the agent namespace.
+
+    Read-before-write is enforced by an exact match: `old_content` must equal the
+    block's current full content, or the edit is rejected (the block changed, or
+    the caller never read it). This is the block analogue of a file edit's
+    old/new string match, and it also guards against clobbering a concurrent edit.
+    """
+    if old_content is None or new_content is None:
+        raise WriteError("old_content and new_content are required")
+    if old_content == new_content:
+        raise WriteError("old_content and new_content are identical (no change)")
+
+    raw = await client.call("logseq.Editor.getBlock", [uuid, {"includeChildren": False}])
+    if not isinstance(raw, dict):
+        raise WriteError(f"block {uuid!r} not found")
+
+    page_name = await assert_block_in_agent_ns(config, client, raw)
+
+    current = raw.get("content") or ""
+    if current != old_content:
+        raise WriteError(
+            "old_content does not match the block's current content — read the "
+            "block first (read_block/read_page); it may have changed. Supply the "
+            "block's exact current content as old_content."
+        )
+
+    await client.call("logseq.Editor.updateBlock", [uuid, new_content])
+    return {
+        "uuid": uuid,
+        "page": page_name,
+        "old_content": current,
+        "new_content": new_content,
+    }
 
 
 async def set_task_status(

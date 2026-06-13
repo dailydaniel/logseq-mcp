@@ -426,6 +426,23 @@ async def set_page_properties(
 
 
 @mcp.tool()
+async def edit_block(
+    uuid: Annotated[str, Field(description="Block UUID — read it first (read_block/read_page)")],
+    old_content: Annotated[str, Field(description="The block's EXACT current full content; the edit is rejected unless it matches")],
+    new_content: Annotated[str, Field(description="Replacement full content for the block")],
+) -> dict:
+    """Replace a block's content, confined to the agent namespace.
+
+    Read the block first: you must pass its exact current content as `old_content`.
+    The edit is rejected if it doesn't match (you didn't read it, or it changed) —
+    this enforces read-before-write and guards a concurrent edit. The block must
+    live under the agent namespace. To change a task's status use set_task_status."""
+    res = await w.edit_block(_cfg(), get_client(), uuid, old_content, new_content)
+    await audit.log_write(_cfg(), get_client(), "edited block", f"(({uuid})) on [[{res['page']}]]")
+    return res
+
+
+@mcp.tool()
 async def set_task_status(
     uuid: Annotated[str, Field(description="Task block UUID")],
     status: Annotated[str, Field(description="New marker, e.g. TODO/DOING/DONE")],
