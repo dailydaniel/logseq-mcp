@@ -100,6 +100,10 @@ make a task is `create_task`, which enforces the structure:
   as `old_content` — the edit is rejected if it doesn't match (you never read it, or
   it changed meanwhile). This is the block analogue of a file edit's old/new match and
   guards against clobbering a concurrent change.
+- `old_content` must be the block's **`raw_content`** (what read_block returns under
+  that key), NOT the cleaned `text`: raw_content keeps the leading task marker
+  (`TODO`/`DONE`) and any `key:: value` property lines. Passing the marker-stripped
+  `text` will fail the match.
 - Like other content writes it is confined to `{prefix}/`: a uuid on a page outside
   the agent namespace is refused. To change a task's status marker use
   `set_task_status`, not `edit_block`.
@@ -107,5 +111,9 @@ make a task is `create_task`, which enforces the structure:
 
 
 def render_guide(agent_prefix: str) -> str:
-    """Fill the guide with the deployment's actual agent write-prefix."""
-    return GUIDE.format(prefix=agent_prefix or "byAgent")
+    """Fill the guide with the deployment's actual agent write-prefix.
+
+    Uses str.replace (not .format) so literal braces in the guide text — e.g. a
+    `{"project": "[[X]]"}` example — don't get parsed as format fields.
+    """
+    return GUIDE.replace("{prefix}", agent_prefix or "byAgent")
