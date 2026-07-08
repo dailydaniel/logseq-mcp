@@ -24,7 +24,7 @@ high-level API of the official `mcp` package).
 Agents need durable memory, and you already maintain one — your graph. The
 missing piece is access you can trust: an agent should read broadly and write
 usefully, but never touch what it shouldn't — and never do anything you can't
-see. Three design choices carry that:
+see. Three design choices make that possible:
 
 - **Namespace-scoped writes.** Agents write only under their own prefix
   (`byAgent/` by default), plus one deliberately narrow cross-namespace channel
@@ -38,10 +38,10 @@ see. Three design choices carry that:
   tools (`query_week_plan`, …), so agents don't compose datascript by hand and
   cheaper models stay reliable.
 
-## In the wild
+## How I use it
 
-This server runs a small fleet of Claude Code agents on an always-on Mac mini
-against a live personal graph:
+I run a small fleet of Claude Code agents with this server on an always-on Mac
+mini, against my live personal graph:
 
 - **Nightly research.** A link dropped into the reading list from the phone; at
   night an agent claims it (`status:: researching`), reads the article — or
@@ -75,7 +75,25 @@ flowchart LR
   (Settings → Features → *HTTP APIs server*, then start it from the 🔌 menu).
 - An **authorization token** created in the HTTP API server settings.
 
-## Usage with Claude Desktop
+## Usage
+
+### Claude Code
+
+Local (stdio), token from the environment:
+
+```bash
+claude mcp add logseq --scope user --env LOGSEQ_API_TOKEN=<YOUR_TOKEN> -- uvx mcp-server-logseq
+```
+
+Or point it at a remote instance over Streamable HTTP (how phone and remote
+sessions reach a headless host — see [Transports](#transports)):
+
+```bash
+claude mcp add logseq --scope user --transport http http://<host>:8000/mcp \
+  --header "Authorization: Bearer <LOGSEQ_MCP_HTTP_TOKEN>"
+```
+
+### Claude Desktop
 
 ```json
 {
@@ -236,8 +254,15 @@ blacklist. Reads resolve `((block refs))` non-lossily (the resolved block's
   (`subpath`, `content?`, `mode?`, `properties?`).
 - **set_page_properties** — set/remove page properties (`subpath`, `properties`;
   a `null` value removes one).
+- **edit_block** — replace one block's content (`uuid`, `old_content`,
+  `new_content`). Read-before-write is enforced: the edit is rejected unless
+  `old_content` matches the block's exact current content. Agent namespace only.
 
 ### Tasks
+- **create_task** — create a task block in the agent namespace (`title`, `agent`,
+  `project?`, `marker?`, `priority?`, `tags?`, `plan_page?`, `blocks_on?`,
+  `on_page?`). The only way to create tasks — `write_note` rejects content that
+  starts with a task marker.
 - **set_task_status** — change only a task's marker (`uuid`, `status`); gated by
   `[tasks].allow_status_change`.
 
