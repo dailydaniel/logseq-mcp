@@ -1,19 +1,73 @@
 # Logseq MCP Server
 
-A [Model Context Protocol](https://modelcontextprotocol.io) server that gives an
-LLM **configurable, safety-scoped** access to a [Logseq](https://logseq.com)
-graph: query and search broadly (all output filtered by a blacklist), but write
-only inside the agent's own namespace plus a narrow task-status channel.
+**Turn your Logseq graph into memory and workspace for AI agents.** A
+[Model Context Protocol](https://modelcontextprotocol.io) server for
+[Logseq](https://logseq.com) with safety-scoped writes, an audit trail in your
+daily journal, and verified queries exposed as tools. Built on **FastMCP** (the
+high-level API of the official `mcp` package).
 
-Built on **FastMCP** (the high-level API of the official `mcp` package).
+[![PyPI](https://img.shields.io/pypi/v/mcp-server-logseq)](https://pypi.org/project/mcp-server-logseq/)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue)](https://pypi.org/project/mcp-server-logseq/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 <a href="https://glama.ai/mcp/servers/@dailydaniel/logseq-mcp">
   <img width="380" height="200" src="https://glama.ai/mcp/servers/@dailydaniel/logseq-mcp/badge" alt="Logseq Server MCP server" />
 </a>
 
-> Targets the **file/Markdown ("OG") version** of Logseq. The newer DB (SQLite)
-> version changed the underlying schema; some methods may behave differently
-> there.
+> Targets the **file/Markdown ("OG") version** of Logseq — and plain-text files
+> are part of why a graph makes good agent memory: git-syncable, greppable,
+> durable, no lock-in. The newer DB (SQLite) version changed the underlying
+> schema; some methods may behave differently there.
+
+## Why
+
+Agents need durable memory, and you already maintain one — your graph. The
+missing piece is access you can trust: an agent should read broadly and write
+usefully, but never touch what it shouldn't — and never do anything you can't
+see. Three design choices carry that:
+
+- **Namespace-scoped writes.** Agents write only under their own prefix
+  (`byAgent/` by default), plus one deliberately narrow cross-namespace channel
+  that can change nothing but a task's `TODO/DOING/DONE` marker. Blacklisted
+  pages are hidden and redacted from every read.
+- **An audit trail in your daily journal.** Every successful write appends a
+  line like `22:30 [[byAgent]] wrote [[byAgent/readingList/...]]` to today's
+  journal — reviewing your agents' work becomes part of a morning routine you
+  already have.
+- **Verified queries as tools.** Ship known-good Datalog from config as named
+  tools (`query_week_plan`, …), so agents don't compose datascript by hand and
+  cheaper models stay reliable.
+
+## In the wild
+
+This server runs a small fleet of Claude Code agents on an always-on Mac mini
+against a live personal graph:
+
+- **Nightly research.** A link dropped into the reading list from the phone; at
+  night an agent claims it (`status:: researching`), reads the article — or
+  shallow-clones and reads the repo — writes a structured summary onto the page
+  and flips it to `read`.
+- **Morning brief.** At 08:30 a small model assembles a one-page dashboard —
+  what was read overnight, week-plan progress, current NOW/DOING tasks — and
+  sends a single push notification.
+- **One journal for everyone.** The human's tasks and the agents' audit lines
+  interleave in the same daily note:
+
+![A daily note: human tasks and agent audit lines side by side](https://github.com/user-attachments/assets/7af817dd-9ad5-4167-8ab9-4de2c90032f3)
+
+The pages the researcher writes — properties, summary, relevance — link straight
+into the rest of the graph:
+
+![A research page written by the nightly agent](https://github.com/user-attachments/assets/ce6a88fa-4ce6-4887-88bd-fa3572c77fdd)
+
+```mermaid
+flowchart LR
+    A[AI agents] -- MCP tools --> S[logseq-mcp]
+    S -- HTTP API --> L[Logseq graph]
+    S -. audit line per write .-> J[daily journal]
+    Y((you)) --> L
+    Y -- morning review --> J
+```
 
 ## Requirements
 
