@@ -275,13 +275,22 @@ recorded — the journal — in the same shape a human keeps by hand:
 #_worklog
   #_work/dynamo
     ((6a9eb940-758e-4966-a31d-f91e79c35f42))
-      17:50 told how to update
+      17:50 [[byAgent/claude/work-scout]] told how to update
 ```
 
 - **list_work_projects** — the closed set of projects a note may be filed under
   (the direct children of `[worklog].namespace`, minus `exclude`).
-- **add_journal_note** — append `HH:MM <text>` to today's journal under a project
-  (`text`, `work`, `task?`), nested under a `((ref))` when a task is given.
+- **list_agents** — the closed set of names a note may be signed with (the direct
+  children of `[worklog].agent_namespace`).
+- **add_journal_note** — append `HH:MM [[agent]] <text>` to today's journal under a
+  project (`text`, `work`, `agent`, `task?`), nested under a `((ref))` when a task
+  is given.
+
+The signature sits **inline on the note**, not as a grouping level: several agents
+logging against one project would otherwise split it into parallel subtrees, each
+with its own chronology. Note that the server cannot authenticate the caller — every
+session presents the same bearer token — so `agent` is an honesty convention
+validated against a list, not an identity. It catches a typo, not a masquerade.
 
 The `root_block` is reused only while it is still the journal's **last top-level
 block**. A journal is chronological, and a root opened in the morning would

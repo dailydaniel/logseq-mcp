@@ -470,21 +470,34 @@ async def list_work_projects() -> dict:
 
 
 @mcp.tool()
+async def list_agents() -> dict:
+    """List the agent names a worklog note can be signed with.
+
+    This is the closed set `add_journal_note` accepts for `agent`. Use your own
+    name — the one this session runs as. The server cannot tell who is calling, so
+    signing honestly is on you."""
+    agents = await wl.list_agents(_cfg(), get_client())
+    return {"count": len(agents), "agents": agents}
+
+
+@mcp.tool()
 async def add_journal_note(
     text: Annotated[str, Field(description="What you did, one line, no task marker — the server prefixes the time")],
     work: Annotated[str, Field(description="Project to file the note under; must be one from list_work_projects")],
+    agent: Annotated[str, Field(description="Your own agent name, from list_agents — it is written into the note as a link")],
     task: Annotated[Optional[str], Field(description="UUID of the task block this note belongs to; the note nests under a ((ref)) to it")] = None,
 ) -> dict:
     """Log a unit of work to today's journal, under its project (and task).
 
-    The note lands as `HH:MM <text>`, nested under the project group and, when a
-    task is given, under a reference to that task — the same shape a human keeps
-    by hand. The server stamps the time, so never write one into `text`.
+    The note lands as `HH:MM [[<agent>]] <text>`, nested under the project group
+    and, when a task is given, under a reference to that task — the same shape a
+    human keeps by hand. The server stamps the time, so never write one into
+    `text`, and sign with your OWN name: the server cannot verify who is calling.
 
     This channel is append-only and confined to today's journal: it cannot edit
-    or delete anything, `work` must come from `list_work_projects`, and `task`
-    must be an existing task block."""
-    return await wl.add_journal_note(_cfg(), get_client(), text, work, task)
+    or delete anything, `work` must come from `list_work_projects`, `agent` from
+    `list_agents`, and `task` must be an existing task block."""
+    return await wl.add_journal_note(_cfg(), get_client(), text, work, agent, task)
 
 
 # ---------------------------------------------------------------------------

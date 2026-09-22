@@ -28,8 +28,9 @@ access to a Logseq graph: **read broadly, write only inside `{prefix}/`.**
 - `set_task_status(uuid, status)` — change a task's marker.
 - `edit_block(uuid, old_content, new_content)` — replace ONE block's content
   in place (read it first; namespace-confined). See "Editing one block".
-- `list_work_projects()` / `add_journal_note(text, work, task?)` — log what you
-  did to TODAY's journal. Present only when `[worklog]` is enabled. See "Worklog".
+- `list_work_projects()` / `list_agents()` / `add_journal_note(text, work, agent,
+  task?)` — log what you did to TODAY's journal. Present only when `[worklog]` is
+  enabled. See "Worklog".
 
 ## Discovering what's in a namespace
 A namespace parent page (e.g. `{prefix}`) usually has **no blocks of its own** —
@@ -111,15 +112,19 @@ make a task is `create_task`, which enforces the structure:
   `set_task_status`, not `edit_block`.
 
 ## Worklog — recording what you did (only when `[worklog]` is enabled)
-`add_journal_note(text, work, task?)` appends `HH:MM <text>` to **today's journal**,
-nested under its project group and, when `task` is given, under a `((uuid))`
-reference to that task — the same shape a human keeps by hand:
+`add_journal_note(text, work, agent, task?)` appends `HH:MM [[agent]] <text>` to
+**today's journal**, nested under its project group and, when `task` is given,
+under a `((uuid))` reference to that task — the same shape a human keeps by hand:
 
     #_worklog
       #_work/dynamo
         ((6a9eb940-758e-4966-a31d-f91e79c35f42))
-          17:50 told how to update
+          17:50 [[byAgent/claude/work-scout]] told how to update
 
+- `agent` must be one of `list_agents()` — **your own name**, the one this session
+  runs as. The signature is written inline on the note rather than as a grouping
+  level, so several agents can log against one project without splitting it. The
+  server cannot tell who is calling: signing honestly is on you.
 - `work` must be one of `list_work_projects()` — read that first, do not guess a
   project name; anything else is rejected.
 - `task` must be an EXISTING task block (any marker, `DOING` included). It is not

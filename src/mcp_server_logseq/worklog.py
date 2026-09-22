@@ -17,10 +17,10 @@ rests instead on a deliberately narrow contract:
 The structure maintained in today's journal — find-or-create at every level, so
 repeated notes nest under the existing headers instead of piling up duplicates:
 
-    #_worklog                         <- root_block
-      #_work/dynamo                   <- project group
-        ((6a9eb940-...))              <- task anchor (only when `task` is given)
-          17:50 told how to update    <- the note
+    #_worklog                                      <- root_block
+      #_work/dynamo                                <- project group
+        ((6a9eb940-...))                           <- task anchor (with `task`)
+          17:50 [[byAgent/claude/x]] told how...   <- the note, signed inline
 
 The root is reused only while it is still the journal's LAST top-level block. A
 journal is chronological; a root opened in the morning would otherwise keep
@@ -141,18 +141,35 @@ def clean_text(text: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-async def list_projects(config: AppConfig, client: LogseqClient) -> list[str]:
-    """The closed set of projects a note may be filed under."""
-    wl = _enabled_cfg(config)
-    pre = canon_page_name(wl.namespace)
+async def _children_of(client: LogseqClient, namespace: str, exclude: list[str]) -> list[str]:
+    pre = canon_page_name(namespace)
     if not pre:
-        raise WorklogError("[worklog].namespace is empty")
+        raise WorklogError("namespace is empty")
     dq = (
         "[:find ?name ?orig :where [?p :block/name ?name] [?p :block/original-name ?orig] "
         f"[(clojure.string/starts-with? ?name {_edn_dumps(pre + '/')})]]"
     )
     rows = await client.call("logseq.DB.datascriptQuery", [dq]) or []
-    return select_projects(rows, wl.namespace, wl.exclude)
+    return select_projects(rows, namespace, exclude)
+
+
+async def list_projects(config: AppConfig, client: LogseqClient) -> list[str]:
+    """The closed set of projects a note may be filed under."""
+    wl = _enabled_cfg(config)
+    return await _children_of(client, wl.namespace, wl.exclude)
+
+
+async def list_agents(config: AppConfig, client: LogseqClient) -> list[str]:
+    """The closed set of agents that may sign a note.
+
+    Membership of the namespace is the only test — the pages there carry two
+    different property conventions (`type:: agent` on the older ones, a
+    `page_type::` template on the newer), and neither is worth making load-bearing.
+    A page that exists only because something references it counts too: that is how
+    a freshly named agent first appears.
+    """
+    wl = _enabled_cfg(config)
+    return await _children_of(client, wl.agent_namespace, wl.agent_exclude)
 
 
 async def _validate_task(client: LogseqClient, task: str) -> str:
@@ -217,6 +234,7 @@ async def add_journal_note(
     client: LogseqClient,
     text: str,
     work: str,
+    agent: str,
     task: Optional[str] = None,
     now: Optional[datetime.datetime] = None,
 ) -> dict:
@@ -238,6 +256,14 @@ async def add_journal_note(
     if chosen is None:
         raise WorklogError(
             f"unknown project {work!r}; pick one of: {', '.join(projects) or '(none)'}"
+        )
+
+    agents = await list_agents(config, client)
+    wanted_agent = canon_page_name(agent or "")
+    signer = next((a for a in agents if canon_page_name(a) == wanted_agent), None)
+    if signer is None:
+        raise WorklogError(
+            f"unknown agent {agent!r}; pick one of: {', '.join(agents) or '(none)'}"
         )
 
     task_uuid = await _validate_task(client, task) if task else None
@@ -290,13 +316,19 @@ async def add_journal_note(
             parent_children = []
         parent_uuid = anchor_uuid
 
-    # Level 4: the note itself.
-    note_line = f"{stamp:%H:%M} {body}"
+    # Level 4: the note itself. The signature goes inline, right after the time —
+    # the same shape the audit log already uses (`09:01 [[byAgent]] wrote …`). It is
+    # deliberately NOT a grouping level: two agents working the same project in one
+    # afternoon would otherwise split into parallel subtrees, each with its own
+    # chronology, which is exactly what the single ordered stream avoids.
+    signature = f"[[{wl.agent_namespace.strip('/')}/{signer}]]"
+    note_line = f"{stamp:%H:%M} {signature} {body}"
     note_uuid = await _append_child(client, parent_uuid, parent_children, note_line)
 
     return {
         "page": page,
         "project": chosen,
+        "agent": signer,
         "task": task_uuid,
         "uuid": note_uuid,
         "content": note_line,

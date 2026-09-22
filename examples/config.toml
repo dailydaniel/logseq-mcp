@@ -40,6 +40,11 @@ root_block = "#_worklog"
 # Direct children that are not projects (archive roots, retired work) — the
 # depth filter alone would let these through.
 exclude = ["archive"]
+# Namespace whose direct children are the agents allowed to sign a note. The
+# extra level ("claude") names the runtime, leaving room for another one later.
+# Membership is the only test — property conventions on those pages vary.
+agent_namespace = "byAgent/claude"
+agent_exclude = []
 
 # --- custom queries ---
 

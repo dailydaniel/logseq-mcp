@@ -14,12 +14,15 @@ from mcp_server_logseq.worklog import (
     add_journal_note,
     clean_text,
     first_line,
+    list_agents,
     list_projects,
     project_tag,
     select_projects,
 )
 
 STAMP = datetime.datetime(2026, 9, 22, 17, 50)
+AGENT = "work-scout"
+SIG = "[[byAgent/claude/work-scout]]"
 
 PROJECT_ROWS = [
     ["_work/dynamo", "_work/dynamo"],
@@ -29,6 +32,12 @@ PROJECT_ROWS = [
     ["_work/archive", "_work/archive"],
     ["_work/archive/botev", "_work/archive/botev"],
     ["_work/frisbee", "_work/frisbee"],
+]
+
+AGENT_ROWS = [
+    ["byagent/claude/work-scout", "byAgent/claude/work-scout"],
+    ["byagent/claude/logseq-factory-admin", "byAgent/claude/logseq-factory-admin"],
+    ["byagent/claude/work-cost/notes", "byAgent/claude/work-cost/notes"],  # too deep
 ]
 
 TASK_UUID = "6a9eb940-758e-4966-a31d-f91e79c35f42"
@@ -50,7 +59,6 @@ def test_select_projects_ignores_malformed_rows() -> None:
 
 
 def test_first_line_ignores_appended_properties() -> None:
-    # Once referenced, a block carries id:: on a later line.
     assert first_line("#_work/dynamo\nid:: 6a9eb940-7585") == "#_work/dynamo"
     assert first_line("  17:50 note  ") == "17:50 note"
     assert first_line("") == ""
@@ -71,9 +79,10 @@ def test_clean_text_collapses_to_one_line() -> None:
 
 
 class _FakeClient:
-    def __init__(self, *, projects=None, blocks=None) -> None:
+    def __init__(self, *, projects=None, agents=None, blocks=None) -> None:
         self.calls: list = []
         self.projects = projects if projects is not None else PROJECT_ROWS
+        self.agents = agents if agents is not None else AGENT_ROWS
         self.blocks = blocks or {}
         self.tree: list = []
         self._n = 0
@@ -104,7 +113,10 @@ class _FakeClient:
         self.calls.append((method, args))
         args = args or []
         if method == "logseq.DB.datascriptQuery":
-            return [["Sep 22nd, 2026"]] if "journal-day" in args[0] else self.projects
+            q = args[0]
+            if "journal-day" in q:
+                return [["Sep 22nd, 2026"]]
+            return self.agents if "byagent/claude" in q else self.projects
         if method == "logseq.Editor.getBlock":
             uid = args[0]
             return {"uuid": uid, "content": self.blocks[uid]} if uid in self.blocks else None
@@ -123,11 +135,9 @@ class _FakeClient:
             return node
         return None
 
-    # -- assertions helpers --
     def writes(self) -> list:
         return [c for c in self.calls if c[0].startswith("logseq.Editor.")
-                and c[0] != "logseq.Editor.getBlock"
-                and c[0] != "logseq.Editor.getPageBlocksTree"]
+                and c[0] not in ("logseq.Editor.getBlock", "logseq.Editor.getPageBlocksTree")]
 
 
 def _cfg(tmp_path: Path, body: str = "enabled = true\nexclude = [\"archive\", \"frisbee\"]\n"):
@@ -146,25 +156,32 @@ def _shape(nodes) -> list:
 # ---------------------------------------------------------------------------
 
 
-def test_disabled_by_default_writes_nothing(tmp_path: Path) -> None:
+def test_disabled_by_default_writes_nothing() -> None:
     cfg = load_config(None)  # no [worklog] section at all
     client = _FakeClient()
     with pytest.raises(WorklogError, match="disabled"):
-        asyncio.run(add_journal_note(cfg, client, "note", "dynamo"))
+        asyncio.run(add_journal_note(cfg, client, "note", "dynamo", AGENT))
     assert client.calls == []
 
 
 def test_unknown_project_is_rejected_and_lists_options(tmp_path: Path) -> None:
     client = _FakeClient()
     with pytest.raises(WorklogError, match="dynamo, itquick"):
-        asyncio.run(add_journal_note(_cfg(tmp_path), client, "note", "frisbee"))
+        asyncio.run(add_journal_note(_cfg(tmp_path), client, "note", "frisbee", AGENT))
+    assert client.writes() == []
+
+
+def test_unknown_agent_is_rejected_and_lists_options(tmp_path: Path) -> None:
+    client = _FakeClient()
+    with pytest.raises(WorklogError, match="logseq-factory-admin, work-scout"):
+        asyncio.run(add_journal_note(_cfg(tmp_path), client, "note", "dynamo", "hermes"))
     assert client.writes() == []
 
 
 def test_empty_text_is_rejected(tmp_path: Path) -> None:
     client = _FakeClient()
     with pytest.raises(WorklogError, match="text is required"):
-        asyncio.run(add_journal_note(_cfg(tmp_path), client, "   ", "dynamo"))
+        asyncio.run(add_journal_note(_cfg(tmp_path), client, "   ", "dynamo", AGENT))
     assert client.calls == []
 
 
@@ -172,28 +189,28 @@ def test_task_marker_text_is_rejected(tmp_path: Path) -> None:
     """A note starting with a marker would silently become a journal task."""
     client = _FakeClient()
     with pytest.raises(WorklogError, match="task marker"):
-        asyncio.run(add_journal_note(_cfg(tmp_path), client, "TODO fix the thing", "dynamo"))
+        asyncio.run(add_journal_note(_cfg(tmp_path), client, "TODO fix it", "dynamo", AGENT))
     assert client.calls == []
 
 
 def test_missing_task_block_is_rejected(tmp_path: Path) -> None:
     client = _FakeClient(blocks={})
     with pytest.raises(WorklogError, match="not found"):
-        asyncio.run(add_journal_note(_cfg(tmp_path), client, "note", "dynamo", TASK_UUID))
+        asyncio.run(add_journal_note(_cfg(tmp_path), client, "n", "dynamo", AGENT, TASK_UUID))
     assert client.writes() == []
 
 
 def test_non_task_block_is_rejected(tmp_path: Path) -> None:
     client = _FakeClient(blocks={TASK_UUID: "just a paragraph"})
     with pytest.raises(WorklogError, match="is not a task"):
-        asyncio.run(add_journal_note(_cfg(tmp_path), client, "note", "dynamo", TASK_UUID))
+        asyncio.run(add_journal_note(_cfg(tmp_path), client, "n", "dynamo", AGENT, TASK_UUID))
     assert client.writes() == []
 
 
 def test_malformed_task_uuid_is_rejected(tmp_path: Path) -> None:
     client = _FakeClient()
     with pytest.raises(WorklogError, match="not a block uuid"):
-        asyncio.run(add_journal_note(_cfg(tmp_path), client, "note", "dynamo", "nope"))
+        asyncio.run(add_journal_note(_cfg(tmp_path), client, "n", "dynamo", AGENT, "nope"))
     assert client.writes() == []
 
 
@@ -205,29 +222,47 @@ def test_malformed_task_uuid_is_rejected(tmp_path: Path) -> None:
 def test_builds_the_full_nesting(tmp_path: Path) -> None:
     client = _FakeClient(blocks={TASK_UUID: "DOING [#A] [[dynamo stats/capology]] вес фичи"})
     res = asyncio.run(
-        add_journal_note(_cfg(tmp_path), client, "told how to update", "dynamo", TASK_UUID, now=STAMP)
+        add_journal_note(_cfg(tmp_path), client, "told how to update", "dynamo",
+                         AGENT, TASK_UUID, now=STAMP)
     )
 
     assert _shape(client.tree) == [
         ("#_worklog", [
             ("#_work/dynamo", [
                 (f"(({TASK_UUID}))", [
-                    ("17:50 told how to update", []),
+                    (f"17:50 {SIG} told how to update", []),
                 ]),
             ]),
         ]),
     ]
-    assert res["page"] == "Sep 22nd, 2026"
     assert res["project"] == "dynamo"
+    assert res["agent"] == AGENT
     assert res["task"] == TASK_UUID
-    assert res["content"] == "17:50 told how to update"
+
+
+def test_the_signature_is_inline_not_a_grouping_level(tmp_path: Path) -> None:
+    """Two agents on one project share the group; only the lines differ."""
+    cfg = _cfg(tmp_path)
+    client = _FakeClient()
+    asyncio.run(add_journal_note(cfg, client, "a", "dynamo", "work-scout", now=STAMP))
+    asyncio.run(add_journal_note(cfg, client, "b", "dynamo", "logseq-factory-admin",
+                                 now=STAMP.replace(minute=55)))
+
+    assert _shape(client.tree) == [
+        ("#_worklog", [
+            ("#_work/dynamo", [
+                ("17:50 [[byAgent/claude/work-scout]] a", []),
+                ("17:55 [[byAgent/claude/logseq-factory-admin]] b", []),
+            ]),
+        ]),
+    ]
 
 
 def test_without_task_the_note_hangs_off_the_project(tmp_path: Path) -> None:
     client = _FakeClient()
-    asyncio.run(add_journal_note(_cfg(tmp_path), client, "login", "itquick", now=STAMP))
+    asyncio.run(add_journal_note(_cfg(tmp_path), client, "login", "itquick", AGENT, now=STAMP))
     assert _shape(client.tree) == [
-        ("#_worklog", [("#_work/itquick", [("17:50 login", [])])]),
+        ("#_worklog", [("#_work/itquick", [(f"17:50 {SIG} login", [])])]),
     ]
 
 
@@ -236,14 +271,14 @@ def test_repeated_notes_reuse_root_group_and_anchor(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
     client = _FakeClient(blocks={TASK_UUID: "DOING [[dynamo stats/capology]] x"})
     for text, t in [("continue", STAMP), ("still going", STAMP.replace(minute=59))]:
-        asyncio.run(add_journal_note(cfg, client, text, "dynamo", TASK_UUID, now=t))
+        asyncio.run(add_journal_note(cfg, client, text, "dynamo", AGENT, TASK_UUID, now=t))
 
     assert _shape(client.tree) == [
         ("#_worklog", [
             ("#_work/dynamo", [
                 (f"(({TASK_UUID}))", [
-                    ("17:50 continue", []),
-                    ("17:59 still going", []),
+                    (f"17:50 {SIG} continue", []),
+                    (f"17:59 {SIG} still going", []),
                 ]),
             ]),
         ]),
@@ -253,13 +288,13 @@ def test_repeated_notes_reuse_root_group_and_anchor(tmp_path: Path) -> None:
 def test_second_project_joins_the_same_root(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
     client = _FakeClient()
-    asyncio.run(add_journal_note(cfg, client, "a", "dynamo", now=STAMP))
-    asyncio.run(add_journal_note(cfg, client, "b", "itquick", now=STAMP))
+    asyncio.run(add_journal_note(cfg, client, "a", "dynamo", AGENT, now=STAMP))
+    asyncio.run(add_journal_note(cfg, client, "b", "itquick", AGENT, now=STAMP))
 
     assert _shape(client.tree) == [
         ("#_worklog", [
-            ("#_work/dynamo", [("17:50 a", [])]),
-            ("#_work/itquick", [("17:50 b", [])]),
+            ("#_work/dynamo", [(f"17:50 {SIG} a", [])]),
+            ("#_work/itquick", [(f"17:50 {SIG} b", [])]),
         ]),
     ]
 
@@ -272,14 +307,12 @@ def test_existing_human_journal_blocks_are_never_touched(tmp_path: Path) -> None
             {"uuid": "human-2", "content": "((deadbeef))", "children": []},
         ]},
     ]
-    asyncio.run(add_journal_note(_cfg(tmp_path), client, "note", "dynamo", now=STAMP))
+    asyncio.run(add_journal_note(_cfg(tmp_path), client, "note", "dynamo", AGENT, now=STAMP))
 
-    # the human block is untouched, and the worklog built its own subtree
     assert _shape(client.tree) == [
         ("#_work/dynamo", [("((deadbeef))", [])]),
-        ("#_worklog", [("#_work/dynamo", [("17:50 note", [])])]),
+        ("#_worklog", [("#_work/dynamo", [(f"17:50 {SIG} note", [])])]),
     ]
-    # nothing was updated or removed — append-only
     assert not [c for c in client.calls if "updateBlock" in c[0] or "removeBlock" in c[0]]
 
 
@@ -287,19 +320,20 @@ def test_a_note_after_something_else_opens_a_fresh_root(tmp_path: Path) -> None:
     """The journal stays chronological: a morning root must not swallow the evening."""
     cfg = _cfg(tmp_path)
     client = _FakeClient()
-    asyncio.run(add_journal_note(cfg, client, "утро", "dynamo", now=STAMP))
+    asyncio.run(add_journal_note(cfg, client, "утро", "dynamo", AGENT, now=STAMP))
 
     # the audit log (or Daniel himself) appends a root-level block in between
     client.tree.append(
         {"uuid": "audit-1", "content": "18:20 [[byAgent]] wrote [[byAgent/brief]]", "children": []}
     )
 
-    asyncio.run(add_journal_note(cfg, client, "вечер", "dynamo", now=STAMP.replace(hour=21)))
+    asyncio.run(add_journal_note(cfg, client, "вечер", "dynamo", AGENT,
+                                 now=STAMP.replace(hour=21)))
 
     assert _shape(client.tree) == [
-        ("#_worklog", [("#_work/dynamo", [("17:50 утро", [])])]),
+        ("#_worklog", [("#_work/dynamo", [(f"17:50 {SIG} утро", [])])]),
         ("18:20 [[byAgent]] wrote [[byAgent/brief]]", []),
-        ("#_worklog", [("#_work/dynamo", [("21:50 вечер", [])])]),
+        ("#_worklog", [("#_work/dynamo", [(f"21:50 {SIG} вечер", [])])]),
     ]
 
 
@@ -307,19 +341,22 @@ def test_a_later_note_anchors_on_the_previous_one(tmp_path: Path) -> None:
     """Order must not depend on how Logseq positions a `sibling: false` insert."""
     cfg = _cfg(tmp_path)
     client = _FakeClient()
-    asyncio.run(add_journal_note(cfg, client, "first", "dynamo", now=STAMP))
+    asyncio.run(add_journal_note(cfg, client, "first", "dynamo", AGENT, now=STAMP))
     first_uuid = client.tree[0]["children"][0]["children"][0]["uuid"]
 
-    asyncio.run(add_journal_note(cfg, client, "second", "dynamo", now=STAMP.replace(minute=55)))
+    asyncio.run(add_journal_note(cfg, client, "second", "dynamo", AGENT,
+                                 now=STAMP.replace(minute=55)))
     target, content, opts = [c for c in client.calls if c[0] == "logseq.Editor.insertBlock"][-1][1]
 
-    assert content == "17:55 second"
+    assert content == f"17:55 {SIG} second"
     assert target == first_uuid and opts["sibling"] is True
 
 
-def test_list_projects_uses_the_configured_namespace(tmp_path: Path) -> None:
+def test_list_projects_and_agents_use_their_namespaces(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
     client = _FakeClient()
-    got = asyncio.run(list_projects(_cfg(tmp_path), client))
-    assert got == ["dynamo", "itquick"]
-    dq = client.calls[0][1][0]
-    assert '"_work/"' in dq  # EDN-quoted prefix, not a bare symbol
+    assert asyncio.run(list_projects(cfg, client)) == ["dynamo", "itquick"]
+    assert asyncio.run(list_agents(cfg, client)) == ["logseq-factory-admin", "work-scout"]
+    queries = [c[1][0] for c in client.calls if c[0] == "logseq.DB.datascriptQuery"]
+    assert '"_work/"' in queries[0]          # EDN-quoted prefix, not a bare symbol
+    assert '"byagent/claude/"' in queries[1]
