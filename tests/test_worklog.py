@@ -283,6 +283,26 @@ def test_existing_human_journal_blocks_are_never_touched(tmp_path: Path) -> None
     assert not [c for c in client.calls if "updateBlock" in c[0] or "removeBlock" in c[0]]
 
 
+def test_a_note_after_something_else_opens_a_fresh_root(tmp_path: Path) -> None:
+    """The journal stays chronological: a morning root must not swallow the evening."""
+    cfg = _cfg(tmp_path)
+    client = _FakeClient()
+    asyncio.run(add_journal_note(cfg, client, "утро", "dynamo", now=STAMP))
+
+    # the audit log (or Daniel himself) appends a root-level block in between
+    client.tree.append(
+        {"uuid": "audit-1", "content": "18:20 [[byAgent]] wrote [[byAgent/brief]]", "children": []}
+    )
+
+    asyncio.run(add_journal_note(cfg, client, "вечер", "dynamo", now=STAMP.replace(hour=21)))
+
+    assert _shape(client.tree) == [
+        ("#_worklog", [("#_work/dynamo", [("17:50 утро", [])])]),
+        ("18:20 [[byAgent]] wrote [[byAgent/brief]]", []),
+        ("#_worklog", [("#_work/dynamo", [("21:50 вечер", [])])]),
+    ]
+
+
 def test_a_later_note_anchors_on_the_previous_one(tmp_path: Path) -> None:
     """Order must not depend on how Logseq positions a `sibling: false` insert."""
     cfg = _cfg(tmp_path)

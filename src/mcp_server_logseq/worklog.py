@@ -22,6 +22,13 @@ repeated notes nest under the existing headers instead of piling up duplicates:
         ((6a9eb940-...))              <- task anchor (only when `task` is given)
           17:50 told how to update    <- the note
 
+The root is reused only while it is still the journal's LAST top-level block. A
+journal is chronological; a root opened in the morning would otherwise keep
+collecting the whole day's notes, rendering an evening entry above the afternoon
+lines that preceded it. Once anything else lands after it, the next note opens a
+fresh root — so a day reads as alternating stretches of work and everything else,
+in the order they happened.
+
 Gated by [worklog].enabled, off by default.
 """
 
@@ -104,6 +111,23 @@ def find_node(nodes: list[Any], line: str) -> Optional[dict]:
     for node in nodes or []:
         if isinstance(node, dict) and first_line(node.get("content") or "") == line:
             return node
+    return None
+
+
+def open_root(tree: list[Any], line: str) -> Optional[dict]:
+    """The worklog root only while it is still the journal's LAST top-level block.
+
+    A journal is chronological, but a root created at 10:17 keeps swallowing every
+    note written after it — so an 17:51 entry renders above the 15:23 line that
+    actually preceded it. Reusing the root only while nothing has been appended
+    after it keeps a run of consecutive notes grouped and starts a fresh root as
+    soon as anything else (an audit line, a note Daniel typed himself) lands in
+    between. The day then reads top to bottom in the order things happened.
+    """
+    for node in reversed(tree or []):
+        if not isinstance(node, dict):
+            continue
+        return node if first_line(node.get("content") or "") == line else None
     return None
 
 
@@ -227,7 +251,7 @@ async def add_journal_note(
     root_line = wl.root_block.strip()
     if not root_line:
         raise WorklogError("[worklog].root_block is empty")
-    root = find_node(tree, root_line)
+    root = open_root(tree, root_line)
     if root is not None:
         root_uuid = root.get("uuid")
         root_children = root.get("children") or []

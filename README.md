@@ -283,12 +283,19 @@ recorded — the journal — in the same shape a human keeps by hand:
 - **add_journal_note** — append `HH:MM <text>` to today's journal under a project
   (`text`, `work`, `task?`), nested under a `((ref))` when a task is given.
 
+The `root_block` is reused only while it is still the journal's **last top-level
+block**. A journal is chronological, and a root opened in the morning would
+otherwise keep collecting the whole day, rendering an evening note above the
+afternoon lines that preceded it. Once anything else lands after it, the next note
+opens a fresh root — so the day reads as alternating stretches of work and
+everything else, in the order they happened.
+
 This is the only channel that writes outside `agent_write_prefix`, so it trades
 path confinement for a narrow contract: **append-only**, **today's journal only**,
-everything it creates lives under the single `root_block`, `work` must come from
-the enum, `task` must be an existing task block, and **the server stamps the
-time** (a caller cannot pass one, so a resumed agent can't log a remembered
-clock). Text starting with a task marker is rejected — use `create_task`.
+everything it creates lives under a `root_block`, `work` must come from the enum,
+`task` must be an existing task block, and **the server stamps the time** (a caller
+cannot pass one, so a resumed agent can't log a remembered clock). Text starting
+with a task marker is rejected — use `create_task`.
 
 ### Dynamic
 - **query_&lt;name&gt;** — each config query with `register_as_tool = true` is
