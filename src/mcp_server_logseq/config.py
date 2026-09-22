@@ -91,6 +91,21 @@ class AuditLogCfg(_Section):
     enabled: bool = False
 
 
+class WorklogCfg(_Section):
+    """The worklog channel (see worklog.py) — off unless explicitly enabled.
+
+    `namespace` is the page namespace whose *direct children* form the closed set
+    of projects a note may be filed under (`_work` → `_work/dynamo`, but never
+    `_work/dynamo/sync`). `exclude` drops project slugs from that set — archived
+    or non-project children that the depth filter alone would let through.
+    """
+
+    enabled: bool = False
+    namespace: str = "_work"
+    root_block: str = "#_worklog"
+    exclude: list[str] = Field(default_factory=list)
+
+
 class QueryCfg(_Section):
     description: str = ""
     file: Optional[str] = None
@@ -113,6 +128,7 @@ class _RawConfig(_Section):
     blacklist: BlacklistCfg = Field(default_factory=BlacklistCfg)
     tasks: TasksCfg = Field(default_factory=TasksCfg)
     audit_log: Optional[AuditLogCfg] = None
+    worklog: Optional[WorklogCfg] = None
     queries: dict[str, QueryCfg] = Field(default_factory=dict)
 
 
@@ -143,6 +159,7 @@ class AppConfig:
     blacklist: BlacklistCfg
     tasks: TasksCfg
     audit_log: Optional[AuditLogCfg]
+    worklog: Optional[WorklogCfg]
     queries: dict[str, CompiledQuery]
     config_dir: Optional[Path]
 
@@ -295,6 +312,7 @@ def load_config(path: Optional[Path]) -> AppConfig:
         blacklist=raw.blacklist,
         tasks=raw.tasks,
         audit_log=raw.audit_log,
+        worklog=raw.worklog,
         queries=queries,
         config_dir=base_dir,
     )

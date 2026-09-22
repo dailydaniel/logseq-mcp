@@ -23,6 +23,24 @@ allow_status_change = false
 [audit_log]
 enabled = false
 
+# Worklog channel: add_journal_note() appends "HH:MM <text>" to TODAY's journal,
+# nested under its project group and, optionally, a ((ref)) to a task block.
+# This is the only channel that writes outside agent_write_prefix, so it is
+# append-only, confined to today's journal, and everything it creates lives
+# under root_block. Off unless enabled.
+[worklog]
+enabled = false
+# Page namespace whose DIRECT children are the projects a note may be filed
+# under: "_work" admits _work/dynamo but never _work/dynamo/sync.
+namespace = "_work"
+# The single daily container the channel owns. Keeping its own root is what
+# stops it from appending into hand-written #_work/... blocks elsewhere in the
+# journal (a week plan, say).
+root_block = "#_worklog"
+# Direct children that are not projects (archive roots, retired work) — the
+# depth filter alone would let these through.
+exclude = ["archive"]
+
 # --- custom queries ---
 
 # advanced query as a self-contained EDN map (its own :rules and :inputs)

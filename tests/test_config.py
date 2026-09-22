@@ -28,6 +28,7 @@ def test_missing_file_uses_defaults(tmp_path: Path) -> None:
     assert cfg.blacklist.pages == []
     assert cfg.tasks.allow_status_change is False
     assert cfg.audit_log is None  # optional sections off when absent
+    assert cfg.worklog is None
     assert cfg.queries == {}
 
 
@@ -80,6 +81,34 @@ def test_empty_optional_section_enables_defaults(tmp_path: Path) -> None:
     cfg = load_config(p)
     assert cfg.audit_log is not None
     assert cfg.audit_log.enabled is False
+
+
+def test_worklog_section(tmp_path: Path) -> None:
+    p = _write(
+        tmp_path,
+        "config.toml",
+        """
+        [worklog]
+        enabled = true
+        namespace = "_work"
+        root_block = "#_worklog"
+        exclude = ["archive", "frisbee"]
+        """,
+    )
+    cfg = load_config(p)
+    assert cfg.worklog is not None
+    assert cfg.worklog.enabled is True
+    assert cfg.worklog.namespace == "_work"
+    assert cfg.worklog.root_block == "#_worklog"
+    assert cfg.worklog.exclude == ["archive", "frisbee"]
+
+
+def test_worklog_defaults_are_off(tmp_path: Path) -> None:
+    p = _write(tmp_path, "config.toml", "[worklog]\n")
+    cfg = load_config(p)
+    assert cfg.worklog is not None
+    assert cfg.worklog.enabled is False  # present but off until explicitly enabled
+    assert cfg.worklog.namespace == "_work"
 
 
 def test_unknown_key_rejected(tmp_path: Path) -> None:

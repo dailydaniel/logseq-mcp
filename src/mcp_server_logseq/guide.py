@@ -28,6 +28,8 @@ access to a Logseq graph: **read broadly, write only inside `{prefix}/`.**
 - `set_task_status(uuid, status)` — change a task's marker.
 - `edit_block(uuid, old_content, new_content)` — replace ONE block's content
   in place (read it first; namespace-confined). See "Editing one block".
+- `list_work_projects()` / `add_journal_note(text, work, task?)` — log what you
+  did to TODAY's journal. Present only when `[worklog]` is enabled. See "Worklog".
 
 ## Discovering what's in a namespace
 A namespace parent page (e.g. `{prefix}`) usually has **no blocks of its own** —
@@ -107,6 +109,28 @@ make a task is `create_task`, which enforces the structure:
 - Like other content writes it is confined to `{prefix}/`: a uuid on a page outside
   the agent namespace is refused. To change a task's status marker use
   `set_task_status`, not `edit_block`.
+
+## Worklog — recording what you did (only when `[worklog]` is enabled)
+`add_journal_note(text, work, task?)` appends `HH:MM <text>` to **today's journal**,
+nested under its project group and, when `task` is given, under a `((uuid))`
+reference to that task — the same shape a human keeps by hand:
+
+    #_worklog
+      #_work/dynamo
+        ((6a9eb940-758e-4966-a31d-f91e79c35f42))
+          17:50 told how to update
+
+- `work` must be one of `list_work_projects()` — read that first, do not guess a
+  project name; anything else is rejected.
+- `task` must be an EXISTING task block (any marker, `DOING` included). It is not
+  checked against the project — file the note under the project you are working on.
+- The **server stamps the time**. Never put a clock value in `text`, and never one
+  recalled from earlier in a resumed session.
+- `text` may not start with a task marker — that would create a task in the journal;
+  use `create_task` for that.
+- This is the one channel that writes OUTSIDE `{prefix}/`, so it is deliberately
+  narrow: append-only, today's journal only, and everything it creates lives under
+  the single worklog root block. It can never edit or delete anything.
 """
 
 

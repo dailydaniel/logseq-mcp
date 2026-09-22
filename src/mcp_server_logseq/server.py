@@ -18,6 +18,7 @@ from . import audit
 from . import filesearch as fs
 from . import queries as q
 from . import resolve as rsv
+from . import worklog as wl
 from . import writes as w
 from .config import AppConfig, CompiledQuery
 from .guide import render_guide
@@ -451,6 +452,39 @@ async def set_task_status(
     res = await w.set_task_status(_cfg(), get_client(), uuid, status)
     await audit.log_write(_cfg(), get_client(), "moved task", f"(({uuid})) to {res['new_status']}")
     return res
+
+
+# ---------------------------------------------------------------------------
+# Worklog channel (today's journal — outside the agent namespace)
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def list_work_projects() -> dict:
+    """List the projects a worklog note can be filed under.
+
+    This is the closed set `add_journal_note` accepts for `work` — read it first
+    instead of guessing a project name."""
+    projects = await wl.list_projects(_cfg(), get_client())
+    return {"count": len(projects), "projects": projects}
+
+
+@mcp.tool()
+async def add_journal_note(
+    text: Annotated[str, Field(description="What you did, one line, no task marker — the server prefixes the time")],
+    work: Annotated[str, Field(description="Project to file the note under; must be one from list_work_projects")],
+    task: Annotated[Optional[str], Field(description="UUID of the task block this note belongs to; the note nests under a ((ref)) to it")] = None,
+) -> dict:
+    """Log a unit of work to today's journal, under its project (and task).
+
+    The note lands as `HH:MM <text>`, nested under the project group and, when a
+    task is given, under a reference to that task — the same shape a human keeps
+    by hand. The server stamps the time, so never write one into `text`.
+
+    This channel is append-only and confined to today's journal: it cannot edit
+    or delete anything, `work` must come from `list_work_projects`, and `task`
+    must be an existing task block."""
+    return await wl.add_journal_note(_cfg(), get_client(), text, work, task)
 
 
 # ---------------------------------------------------------------------------

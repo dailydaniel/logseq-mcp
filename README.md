@@ -136,6 +136,7 @@ full annotated example.
 | `[blacklist]` | `pages` — pages (and subpages) to hide and redact everywhere |
 | `[tasks]` | `allow_status_change` — gate for `set_task_status` |
 | `[audit_log]` | `enabled` — log writes to today's journal |
+| `[worklog]` | `enabled`, `namespace`, `root_block`, `exclude` — the worklog channel |
 | `[queries.<name>]` | a named query: `file`/inline `query`, `register_as_tool`, … |
 
 Secrets and the API URL stay in the environment, never in this file.
@@ -265,6 +266,29 @@ blacklist. Reads resolve `((block refs))` non-lossily (the resolved block's
   starts with a task marker.
 - **set_task_status** — change only a task's marker (`uuid`, `status`); gated by
   `[tasks].allow_status_change`.
+
+### Worklog (today's journal; `[worklog].enabled`)
+An agent that does work should be able to say so where the rest of the work is
+recorded — the journal — in the same shape a human keeps by hand:
+
+```
+#_worklog
+  #_work/dynamo
+    ((6a9eb940-758e-4966-a31d-f91e79c35f42))
+      17:50 told how to update
+```
+
+- **list_work_projects** — the closed set of projects a note may be filed under
+  (the direct children of `[worklog].namespace`, minus `exclude`).
+- **add_journal_note** — append `HH:MM <text>` to today's journal under a project
+  (`text`, `work`, `task?`), nested under a `((ref))` when a task is given.
+
+This is the only channel that writes outside `agent_write_prefix`, so it trades
+path confinement for a narrow contract: **append-only**, **today's journal only**,
+everything it creates lives under the single `root_block`, `work` must come from
+the enum, `task` must be an existing task block, and **the server stamps the
+time** (a caller cannot pass one, so a resumed agent can't log a remembered
+clock). Text starting with a task marker is rejected — use `create_task`.
 
 ### Dynamic
 - **query_&lt;name&gt;** — each config query with `register_as_tool = true` is
