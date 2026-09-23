@@ -484,12 +484,12 @@ async def list_agents() -> dict:
 async def add_journal_note(
     text: Annotated[str, Field(description="What you did, one line, no task marker — the server prefixes the time")],
     work: Annotated[str, Field(description="Project to file the note under; must be one from list_work_projects")],
-    agent: Annotated[str, Field(description="Your own agent name from list_agents, as <runtime>/<name> (a bare name is accepted when only one runtime has it) — written into the note as a link")],
+    agent: Annotated[str, Field(description="Your own agent name from list_agents, as <runtime>/<name> (a bare name is accepted when only one runtime has it) — written into the note as a tag")],
     task: Annotated[Optional[str], Field(description="UUID of the task block this note belongs to; the note nests under a ((ref)) to it")] = None,
 ) -> dict:
     """Log a unit of work to today's journal, under its project (and task).
 
-    The note lands as `HH:MM [[<agent>]] <text>`, nested under the project group
+    The note lands as `HH:MM #<agent page> <text>`, nested under the project group
     and, when a task is given, under a reference to that task — the same shape a
     human keeps by hand. The server stamps the time, so never write one into
     `text`, and sign with your OWN name: the server cannot verify who is calling.
@@ -498,6 +498,15 @@ async def add_journal_note(
     or delete anything, `work` must come from `list_work_projects`, `agent` from
     `list_agents`, and `task` must be an existing task block."""
     return await wl.add_journal_note(_cfg(), get_client(), text, work, agent, task)
+
+
+@mcp.tool()
+async def get_worklog_setup_template() -> dict:
+    """Return the worklog section for an agent's instructions file (CLAUDE.md, AGENTS.md).
+
+    Call it ONLY when the user asks you to add worklog instructions to such a file —
+    never to log work (that is `add_journal_note`). The result says how to fill it in."""
+    return wl.setup_template(_cfg())
 
 
 # ---------------------------------------------------------------------------

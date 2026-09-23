@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import datetime
 import re
+from importlib import resources
 from typing import Any, Optional
 
 from .blacklist import canon_page_name
@@ -396,3 +397,34 @@ async def add_journal_note(
         "uuid": note_uuid,
         "content": note_line,
     }
+
+
+# ---------------------------------------------------------------------------
+# Setup template — the worklog section of an agent's instructions file
+# ---------------------------------------------------------------------------
+
+_SETUP_HOW_TO = """\
+Write `template` into the instructions file the user named (CLAUDE.md, AGENTS.md)
+as a section of it, keeping what is already there, with every <placeholder> filled:
+
+- `<runtime>/<name>`: your own name from `list_agents`. If it is not there, stop and
+  ask the user to create the page `{agents}/<runtime>/<name>` in Logseq — you cannot
+  register yourself.
+- `<project>`: one of `list_work_projects`; ask the user if it is not obvious.
+- Read the agent page: step 1 of the template relies on its `tags` naming the
+  project page. If they don't, ask the user to add it.
+
+Show the user the filled section before writing it."""
+
+
+def setup_template(config: AppConfig) -> dict:
+    """The worklog section for an agent's instructions file, with this deployment's
+    namespaces filled in, and how to install it."""
+    wl = _enabled_cfg(config)
+    text = resources.files(__package__).joinpath("worklog_setup.md").read_text(encoding="utf-8")
+    agents, work = wl.agent_namespace.strip("/"), wl.namespace.strip("/")
+
+    def fill(s: str) -> str:
+        return s.replace("{agents}", agents).replace("{work}", work)
+
+    return {"how_to": fill(_SETUP_HOW_TO), "template": fill(text)}

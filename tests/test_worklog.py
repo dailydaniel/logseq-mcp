@@ -20,6 +20,7 @@ from mcp_server_logseq.worklog import (
     resolve_agent,
     select_agents,
     select_projects,
+    setup_template,
     tag_ref,
 )
 
@@ -433,3 +434,21 @@ def test_a_mentioned_but_never_created_agent_page_does_not_register(tmp_path: Pa
 def test_tag_ref_brackets_a_name_with_a_space() -> None:
     assert tag_ref("_agents/claude/work-scout") == "#_agents/claude/work-scout"
     assert tag_ref("_agents/claude/my agent") == "#[[_agents/claude/my agent]]"
+
+
+# --- setup template -------------------------------------------------------------
+
+
+def test_setup_template_uses_the_configured_namespaces(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path, 'enabled = true\nnamespace = "projects"\nagent_namespace = "bots"\n')
+    res = setup_template(cfg)
+    assert "`bots/<runtime>/<name>`" in res["template"]
+    assert "`projects/<project>`" in res["template"]
+    assert "`bots/<runtime>/<name>`" in res["how_to"]
+    assert "{agents}" not in res["template"] + res["how_to"]
+    assert "{work}" not in res["template"]
+
+
+def test_setup_template_needs_the_worklog(tmp_path: Path) -> None:
+    with pytest.raises(WorklogError, match="disabled"):
+        setup_template(_cfg(tmp_path, "enabled = false\n"))

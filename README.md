@@ -287,6 +287,11 @@ recorded — the journal — in the same shape a human keeps by hand:
 - **add_journal_note** — append `HH:MM #<agent> <text>` to today's journal under a
   project (`text`, `work`, `agent`, `task?`), nested under a `((ref))` when a task
   is given.
+- **get_worklog_setup_template** — the worklog section for an agent's instructions
+  file (CLAUDE.md, AGENTS.md): which task to log under, when to move its status,
+  what an entry looks like. Called only when the user asks to set that up — "add
+  the worklog to CLAUDE.md" in any session is enough. The template is
+  [`worklog_setup.md`](src/mcp_server_logseq/worklog_setup.md).
 
 The signature sits **inline on the note**, not as a grouping level: several agents
 logging against one project would otherwise split it into parallel subtrees, each

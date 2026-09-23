@@ -30,7 +30,8 @@ access to a Logseq graph: **read broadly, write only inside `{prefix}/`.**
   in place (read it first; namespace-confined). See "Editing one block".
 - `list_work_projects()` / `list_agents()` / `add_journal_note(text, work, agent,
   task?)` — log what you did to TODAY's journal. Present only when `[worklog]` is
-  enabled. See "Worklog".
+  enabled. See "Worklog". `get_worklog_setup_template()` — only when the user asks
+  to put worklog instructions into CLAUDE.md / AGENTS.md.
 
 ## Discovering what's in a namespace
 A namespace parent page (e.g. `{prefix}`) usually has **no blocks of its own** —
