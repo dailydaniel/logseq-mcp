@@ -8,7 +8,9 @@ not exposed. See assets/logseq-mcp-design-v0.7.md.
 from __future__ import annotations
 
 import datetime
-from typing import Annotated, Any, Optional
+import functools
+import json
+from typing import Annotated, Any, Callable, Optional
 
 from mcp.server.fastmcp import FastMCP
 from pydantic import Field
@@ -36,6 +38,58 @@ app_config: Optional[AppConfig] = None
 _client: Optional[LogseqClient] = None
 
 mcp = FastMCP("logseq")
+
+
+def _prune(value: Any) -> Any:
+    """Drop what a block says by saying nothing: empty fields and a duplicate text.
+
+    A normalized block carries a dozen keys, most of them null or empty on any given
+    block, and `raw_content` repeats `text` unless the block has properties or a
+    logbook. On a busy journal that was two thirds of the payload. Only block-shaped
+    dicts (those with a `uuid`) are pruned — a top-level `"blocks": []` still says
+    "no blocks" out loud.
+    """
+    if isinstance(value, list):
+        return [_prune(v) for v in value]
+    if not isinstance(value, dict):
+        return value
+    out = {k: _prune(v) for k, v in value.items()}
+    if "uuid" in out:
+        out = {k: v for k, v in out.items() if v is not None and v != [] and v != {}}
+        if "raw_content" in out and out["raw_content"] == out.get("text"):
+            del out["raw_content"]
+    return out
+
+
+def _wire(result: Any) -> Any:
+    """A tool result as compact JSON.
+
+    The SDK renders a dict with `indent=2`; on a nested block tree the indentation
+    alone is a third of the text. A 99-block journal came to 72k characters, over
+    the client's limit for one tool result, and the agent could not read it at all.
+    """
+    if isinstance(result, (dict, list)):
+        return json.dumps(_prune(result), ensure_ascii=False, separators=(",", ":"), default=str)
+    return result
+
+
+def tool(*args: Any, **kwargs: Any) -> Callable:
+    """`mcp.tool`, with the result sent through `_wire`.
+
+    The function itself is returned unchanged, so code and tests that call a tool
+    directly still get its dict.
+    """
+    register = mcp.tool(*args, **kwargs)
+
+    def decorate(fn: Callable) -> Callable:
+        @functools.wraps(fn)
+        async def wired(*a: Any, **kw: Any) -> Any:
+            return _wire(await fn(*a, **kw))
+
+        register(wired)
+        return fn
+
+    return decorate
 
 
 def get_client() -> LogseqClient:
@@ -151,7 +205,7 @@ async def _search_files(query: str, regex: bool, case_sensitive: bool, exclude_j
     return results
 
 
-@mcp.tool()
+@tool()
 async def search(
     query: Annotated[str, Field(description="Text or regex to search block content for")],
     regex: Annotated[bool, Field(description="Treat query as a regex")] = False,
@@ -175,7 +229,7 @@ async def search(
     return {"backend": backend, "count": len(results), "results": results[: (limit or 50)]}
 
 
-@mcp.tool()
+@tool()
 async def find_tasks(
     markers: Annotated[Optional[list[str]], Field(description="Task markers (default TODO/DOING/NOW/LATER)")] = None,
     tag: Annotated[Optional[str], Field(description="Task directly references this page/tag")] = None,
@@ -261,7 +315,7 @@ def _filter_page_rows(rows: list[Any], pre: str, depth: Optional[int], bl: Black
     return out
 
 
-@mcp.tool()
+@tool()
 async def list_pages(
     prefix: Annotated[str, Field(description="Namespace prefix; returns its descendant pages. Empty = all pages.")] = "",
     depth: Annotated[Optional[int], Field(description="Limit namespace levels below the prefix (1 = direct children). Default: unlimited.")] = None,
@@ -283,7 +337,7 @@ async def list_pages(
     return {"prefix": pre, "count": len(pages), "pages": pages}
 
 
-@mcp.tool()
+@tool()
 async def get_logseq_guide() -> dict:
     """Return the authoritative guide for querying and writing this Logseq graph.
 
@@ -294,7 +348,7 @@ async def get_logseq_guide() -> dict:
     return {"guide": render_guide(_cfg().write.agent_write_prefix)}
 
 
-@mcp.tool()
+@tool()
 async def list_custom_queries() -> dict:
     """List the named custom queries available from the server config."""
     return {
@@ -315,7 +369,7 @@ async def _run_named_query(cq: CompiledQuery, inputs: Optional[list[Any]]) -> di
     return {"name": cq.name, "count": len(blocks), "results": blocks}
 
 
-@mcp.tool()
+@tool()
 async def custom_query(
     name: Annotated[str, Field(description="Name of a configured query")],
     inputs: Annotated[Optional[list[Any]], Field(description="Override the query's inputs")] = None,
@@ -327,7 +381,7 @@ async def custom_query(
     return await _run_named_query(cq, inputs)
 
 
-@mcp.tool()
+@tool()
 async def datascript_query(
     query: Annotated[str, Field(description="Raw Datalog query vector, e.g. [:find (pull ?b [*]) :where ...]")],
     inputs: Annotated[Optional[list[Any]], Field(description="Query inputs (after $ and rules)")] = None,
@@ -373,7 +427,7 @@ async def _resolve_page(page: str) -> str:
     return p
 
 
-@mcp.tool()
+@tool()
 async def read_page(
     page: Annotated[str, Field(description="Page name or UUID; a date YYYY-MM-DD reads that day's journal")],
     depth: Annotated[Optional[int], Field(description="Block-ref resolution depth (default from config)")] = None,
@@ -393,7 +447,7 @@ async def read_page(
     return {"page": name, "blocks": blocks}
 
 
-@mcp.tool()
+@tool()
 async def read_block(
     uuid: Annotated[str, Field(description="Block UUID")],
     depth: Annotated[Optional[int], Field(description="Block-ref resolution depth (default from config)")] = None,
@@ -411,7 +465,7 @@ async def read_block(
 # ---------------------------------------------------------------------------
 
 
-@mcp.tool()
+@tool()
 async def write_note(
     subpath: Annotated[str, Field(description="Page path within the agent namespace")],
     content: Annotated[Optional[str], Field(description="Block content to add (markdown)")] = None,
@@ -424,7 +478,7 @@ async def write_note(
     return res
 
 
-@mcp.tool()
+@tool()
 async def create_task(
     title: Annotated[str, Field(description="Task text")],
     agent: Annotated[str, Field(description="Executor agent name, e.g. 'hermes' -> link [[<prefix>/hermes]]")],
@@ -448,7 +502,7 @@ async def create_task(
     return res
 
 
-@mcp.tool()
+@tool()
 async def set_page_properties(
     subpath: Annotated[str, Field(description="Page path within the agent namespace")],
     properties: Annotated[dict, Field(description="Properties to set; value null removes one")],
@@ -459,7 +513,7 @@ async def set_page_properties(
     return res
 
 
-@mcp.tool()
+@tool()
 async def edit_block(
     uuid: Annotated[str, Field(description="Block UUID — read it first (read_block/read_page)")],
     old_content: Annotated[str, Field(description="The block's EXACT current full content; the edit is rejected unless it matches")],
@@ -476,7 +530,7 @@ async def edit_block(
     return res
 
 
-@mcp.tool()
+@tool()
 async def set_task_status(
     uuid: Annotated[str, Field(description="Task block UUID")],
     status: Annotated[str, Field(description="New marker, e.g. TODO/DOING/DONE")],
@@ -492,7 +546,7 @@ async def set_task_status(
 # ---------------------------------------------------------------------------
 
 
-@mcp.tool()
+@tool()
 async def list_work_projects() -> dict:
     """List the projects a worklog note can be filed under.
 
@@ -502,7 +556,7 @@ async def list_work_projects() -> dict:
     return {"count": len(projects), "projects": projects}
 
 
-@mcp.tool()
+@tool()
 async def list_agents() -> dict:
     """List the agent names a worklog note can be signed with, as `<runtime>/<name>`.
 
@@ -513,7 +567,7 @@ async def list_agents() -> dict:
     return {"count": len(agents), "agents": agents}
 
 
-@mcp.tool()
+@tool()
 async def add_journal_note(
     text: Annotated[str, Field(description="What you did, one line, no task marker — the server prefixes the time")],
     work: Annotated[str, Field(description="Project to file the note under; must be one from list_work_projects")],
@@ -533,7 +587,7 @@ async def add_journal_note(
     return await wl.add_journal_note(_cfg(), get_client(), text, work, agent, task)
 
 
-@mcp.tool()
+@tool()
 async def get_worklog_setup_template() -> dict:
     """Return the worklog section for an agent's instructions file (CLAUDE.md, AGENTS.md).
 
@@ -561,6 +615,6 @@ def register_dynamic_tools() -> None:
 
             return run
 
-        mcp.tool(name=f"query_{cq.name}", description=cq.description or f"Run the '{cq.name}' query")(
+        tool(name=f"query_{cq.name}", description=cq.description or f"Run the '{cq.name}' query")(
             make(cq)
         )

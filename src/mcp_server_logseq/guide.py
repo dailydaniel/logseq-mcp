@@ -35,6 +35,12 @@ access to a Logseq graph: **read broadly, write only inside `{prefix}/`.**
   enabled. See "Worklog". `get_worklog_setup_template()` — only when the user asks
   to put worklog instructions into CLAUDE.md / AGENTS.md.
 
+## Block fields
+A block comes with only the fields it actually has: a null, `[]` or `{}` field is
+left out (no `status` = not a task, no `children` = a leaf), and `raw_content` is
+present only when it differs from `text` — i.e. when the block has a task marker,
+properties such as `id::`, or a logbook.
+
 ## Discovering what's in a namespace
 A namespace parent page (e.g. `{prefix}`) usually has **no blocks of its own** —
 its children are SEPARATE pages. `read_page("{prefix}")` returns `[]`; that does
@@ -109,7 +115,8 @@ make a task is `create_task`, which enforces the structure:
 - `old_content` must be the block's **`raw_content`** (what read_block returns under
   that key), NOT the cleaned `text`: raw_content keeps the leading task marker
   (`TODO`/`DONE`) and any `key:: value` property lines. Passing the marker-stripped
-  `text` will fail the match.
+  `text` will fail the match. A block without `raw_content` has none because it
+  equals `text` — then `text` IS the exact content (see "Block fields").
 - Like other content writes it is confined to `{prefix}/`: a uuid on a page outside
   the agent namespace is refused. To change a task's status marker use
   `set_task_status`, not `edit_block`.

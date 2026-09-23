@@ -225,7 +225,10 @@ and listening.
 
 All read output is normalized to a flat JSON shape and passed through the
 blacklist. Reads resolve `((block refs))` non-lossily (the resolved block's
-`uuid`/`status` is kept so you can act on it).
+`uuid`/`status` is kept so you can act on it). Results go out as compact JSON, and a
+block carries only the fields it has: empty ones are left out, and `raw_content`
+appears only when it differs from `text` — on a busy journal that is a third of the
+indented, fully-keyed form.
 
 ### Find
 - **search** — full-text search over block content (`query`, `regex?`, `limit?`,
