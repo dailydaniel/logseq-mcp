@@ -104,12 +104,13 @@ class WorklogCfg(_Section):
     namespace: str = "_work"
     root_block: str = "#_worklog"
     exclude: list[str] = Field(default_factory=list)
-    # Agents that may sign a note are the pages exactly TWO levels below this
-    # namespace: `<runtime>/<name>` (byAgent/claude/work-scout, byAgent/codex/x).
-    # Any runtime qualifies, so adding one needs no config. Content namespaces that
-    # sit at the same depth (a reading list, project notes) must be listed in
-    # agent_exclude — otherwise every page in them becomes a valid signature.
-    agent_namespace: str = "byAgent"
+    # The agent registry: agents that may sign a note are the pages exactly TWO
+    # levels below this namespace, `<runtime>/<name>` (_agents/claude/work-scout,
+    # _agents/codex/macbook), from any runtime. Only pages that have a file count —
+    # a page that exists merely because something mentions it is not registered.
+    # The namespace must lie OUTSIDE the agents' write prefix (enforced at load):
+    # a registry the agents can write to is not a registry.
+    agent_namespace: str = "_agents"
     agent_exclude: list[str] = Field(default_factory=list)
 
 
@@ -294,6 +295,36 @@ def default_config_path() -> Path:
     return Path("~/.config/logseq-mcp/config.toml").expanduser()
 
 
+def _check_agent_registry(raw: _RawConfig) -> None:
+    """Refuse a worklog whose agent registry the agents could write into.
+
+    Signatures are checked against the pages in the registry. If an agent can
+    create a page there — because the registry sits inside its write prefix, or
+    because agents may write anywhere — it can mint itself a valid name, and the
+    closed list is closed in name only. Fail at startup rather than run that way.
+    """
+    wl = raw.worklog
+    if not (wl and wl.enabled):
+        return
+    from .blacklist import canon_page_name
+
+    prefix = canon_page_name(raw.write.agent_write_prefix)
+    registry = canon_page_name(wl.agent_namespace)
+    if not registry:
+        raise ConfigError("[worklog].agent_namespace is empty")
+    if raw.write.allow_agents_write_any:
+        raise ConfigError(
+            "[worklog] needs an agent registry agents cannot write to, but "
+            "[write].allow_agents_write_any lets them write anywhere"
+        )
+    if registry == prefix or registry.startswith(prefix + "/"):
+        raise ConfigError(
+            f"[worklog].agent_namespace {wl.agent_namespace!r} lies inside the agents' "
+            f"write prefix {raw.write.agent_write_prefix!r}: agents could register "
+            "themselves. Put the registry outside it (default: _agents)."
+        )
+
+
 def load_config(path: Optional[Path]) -> AppConfig:
     """Load and validate config from `path`. Missing file → all defaults."""
     if path is not None and path.exists():
@@ -310,6 +341,7 @@ def load_config(path: Optional[Path]) -> AppConfig:
         raw = _RawConfig()
         base_dir = path.parent if path is not None else None
 
+    _check_agent_registry(raw)
     queries = {name: _compile_query(name, q, base_dir) for name, q in raw.queries.items()}
 
     return AppConfig(

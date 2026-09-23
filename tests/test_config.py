@@ -231,3 +231,31 @@ def test_map_without_query_key_rejected(tmp_path: Path) -> None:
     p = _write(tmp_path, "config.toml", '[queries.bad]\nfile = "queries/bad.edn"\n')
     with pytest.raises(ConfigError):
         load_config(p)
+
+
+# --- the agent registry must be out of the agents' reach ----------------------
+
+
+def test_worklog_registry_inside_the_write_prefix_is_refused(tmp_path: Path) -> None:
+    p = _write(tmp_path, "config.toml", '[worklog]\nenabled = true\nagent_namespace = "byAgent/agents"\n')
+    with pytest.raises(ConfigError, match="inside the agents' write prefix"):
+        load_config(p)
+
+
+def test_worklog_registry_with_write_anywhere_is_refused(tmp_path: Path) -> None:
+    p = _write(tmp_path, "config.toml",
+               "[write]\nallow_agents_write_any = true\n[worklog]\nenabled = true\n")
+    with pytest.raises(ConfigError, match="allow_agents_write_any"):
+        load_config(p)
+
+
+def test_worklog_registry_default_is_outside_the_prefix(tmp_path: Path) -> None:
+    p = _write(tmp_path, "config.toml", "[worklog]\nenabled = true\n")
+    cfg = load_config(p)
+    assert cfg.worklog is not None and cfg.worklog.agent_namespace == "_agents"
+
+
+def test_a_disabled_worklog_is_not_checked(tmp_path: Path) -> None:
+    """The guard protects a live registry; a disabled channel has none."""
+    p = _write(tmp_path, "config.toml", '[worklog]\nagent_namespace = "byAgent/x"\n')
+    assert load_config(p).worklog is not None

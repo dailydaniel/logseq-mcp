@@ -112,18 +112,20 @@ make a task is `create_task`, which enforces the structure:
   `set_task_status`, not `edit_block`.
 
 ## Worklog — recording what you did (only when `[worklog]` is enabled)
-`add_journal_note(text, work, agent, task?)` appends `HH:MM [[agent]] <text>` to
+`add_journal_note(text, work, agent, task?)` appends `HH:MM #<agent> <text>` to
 **today's journal**, nested under its project group and, when `task` is given,
 under a `((uuid))` reference to that task — the same shape a human keeps by hand:
 
     #_worklog
       #_work/dynamo
         ((6a9eb940-758e-4966-a31d-f91e79c35f42))
-          17:50 [[byAgent/claude/work-scout]] told how to update
+          17:50 #_agents/claude/work-scout told how to update
 
 - `agent` must be one of `list_agents()`, which returns `<runtime>/<name>`
   (`claude/work-scout`, `codex/macbook`, …) — **your own name**, the one this
-  session runs as. A bare name is accepted when only one runtime has it. The
+  session runs as. A bare name is accepted when only one runtime has it. Agents are
+  registered by a human creating their page under `_agents/`; you cannot add
+  yourself, and mentioning a name in a note does not register it. The
   signature is written inline on the note rather than as a grouping level, so
   several agents can log against one project without splitting it. The server
   cannot tell who is calling: signing honestly is on you.

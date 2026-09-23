@@ -275,18 +275,16 @@ recorded — the journal — in the same shape a human keeps by hand:
 #_worklog
   #_work/dynamo
     ((6a9eb940-758e-4966-a31d-f91e79c35f42))
-      17:50 [[byAgent/claude/work-scout]] told how to update
+      17:50 #_agents/claude/work-scout told how to update
 ```
 
 - **list_work_projects** — the closed set of projects a note may be filed under
   (the direct children of `[worklog].namespace`, minus `exclude`).
 - **list_agents** — the closed set of names a note may be signed with, as
-  `<runtime>/<name>`: pages exactly two levels below `[worklog].agent_namespace`
-  (default `byAgent`), from any runtime, minus the content namespaces listed in
-  `agent_exclude`. A new runtime (`byAgent/codex/...`) needs no config; a content
-  namespace at that depth (a reading list) must be excluded, or every page in it
-  becomes a valid signature.
-- **add_journal_note** — append `HH:MM [[agent]] <text>` to today's journal under a
+  `<runtime>/<name>`: the pages exactly two levels below the agent registry
+  `[worklog].agent_namespace` (default `_agents`), from any runtime — a new one
+  (`_agents/codex/...`) needs no config.
+- **add_journal_note** — append `HH:MM #<agent> <text>` to today's journal under a
   project (`text`, `work`, `agent`, `task?`), nested under a `((ref))` when a task
   is given.
 
@@ -295,6 +293,14 @@ logging against one project would otherwise split it into parallel subtrees, eac
 with its own chronology. Note that the server cannot authenticate the caller — every
 session presents the same bearer token — so `agent` is an honesty convention
 validated against a list, not an identity. It catches a typo, not a masquerade.
+
+What the list CAN promise is that agents cannot add themselves to it. Two rules
+hold that line. The registry lives **outside** the agents' write prefix, so
+`write_note` cannot create a page there — the server refuses to start if it is
+configured inside. And only pages that **have a file** count: writing
+`[[_agents/claude/x]]` in any note makes Logseq create a reference-only page, which
+would otherwise be enough to register a name. Registering an agent therefore means
+creating its page, by hand, in Logseq.
 
 The `root_block` is reused only while it is still the journal's **last top-level
 block**. A journal is chronological, and a root opened in the morning would

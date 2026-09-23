@@ -20,7 +20,7 @@ repeated notes nest under the existing headers instead of piling up duplicates:
     #_worklog                                      <- root_block
       #_work/dynamo                                <- project group
         ((6a9eb940-...))                           <- task anchor (with `task`)
-          17:50 [[byAgent/claude/x]] told how...   <- the note, signed inline
+          17:50 #_agents/claude/x told how...      <- the note, signed inline
 
 The root is reused only while it is still the journal's LAST top-level block. A
 journal is chronological; a root opened in the morning would otherwise keep
@@ -75,6 +75,12 @@ def first_line(content: str) -> str:
     return (content or "").split("\n", 1)[0].strip()
 
 
+def tag_ref(page: str) -> str:
+    """A page as a Logseq tag: `#a/b/c`, or `#[[a/b c]]` when it contains a space."""
+    p = page.strip().strip("/")
+    return f"#[[{p}]]" if any(c.isspace() for c in p) else f"#{p}"
+
+
 def project_tag(namespace: str, project: str) -> str:
     """Render a project group's tag: ('_work', 'dynamo') -> '#_work/dynamo'."""
     return f"#{namespace.strip('/')}/{project.strip('/')}"
@@ -110,9 +116,9 @@ def select_agents(rows: list[Any], namespace: str, exclude: list[str]) -> list[s
     """Pure: `[name, original-name]` rows -> the closed set of `<runtime>/<name>`.
 
     An agent is a page exactly two levels below the namespace. Any runtime counts
-    (`claude`, `codex`, a future one) so a new runtime needs no config; what the
-    exclude list is for is the content namespaces at that same depth — the reading
-    list alone would otherwise contribute a few hundred "agents".
+    (`claude`, `codex`, a future one) so a new runtime needs no config. The registry
+    is meant to hold nothing but agents, so `exclude` is rarely needed — it is for
+    retiring a whole runtime without deleting its pages.
     """
     pre = canon_page_name(namespace)
     denied = {canon_page_name(e) for e in exclude if (e or "").strip()}
@@ -136,7 +142,7 @@ def select_agents(rows: list[Any], namespace: str, exclude: list[str]) -> list[s
 def resolve_agent(agents: list[str], wanted: str, namespace: str) -> str:
     """Match a caller's `agent` against the list, forgivingly but never guessing.
 
-    Accepted: `claude/work-scout`, the full page name `byAgent/claude/work-scout`,
+    Accepted: `claude/work-scout`, the full page name `_agents/claude/work-scout`,
     or the bare `work-scout` when exactly one runtime has it. A bare name that two
     runtimes share is refused rather than resolved by preference.
     """
@@ -192,13 +198,23 @@ def clean_text(text: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-async def _rows_under(client: LogseqClient, namespace: str) -> list[Any]:
+async def _rows_under(
+    client: LogseqClient, namespace: str, *, materialized: bool = False
+) -> list[Any]:
+    """[name, original-name] rows for pages below `namespace`.
+
+    `materialized` keeps only pages that have a file. A page Logseq knows about only
+    because some block mentions it has none — so for the agent registry this is
+    what separates "someone created this agent's page" from "someone typed its
+    name", which an agent can do in any note it writes.
+    """
     pre = canon_page_name(namespace)
     if not pre:
         raise WorklogError("namespace is empty")
+    file_clause = " [?p :block/file _]" if materialized else ""
     dq = (
         "[:find ?name ?orig :where [?p :block/name ?name] [?p :block/original-name ?orig] "
-        f"[(clojure.string/starts-with? ?name {_edn_dumps(pre + '/')})]]"
+        f"[(clojure.string/starts-with? ?name {_edn_dumps(pre + '/')})]{file_clause}]"
     )
     return await client.call("logseq.DB.datascriptQuery", [dq]) or []
 
@@ -212,14 +228,16 @@ async def list_projects(config: AppConfig, client: LogseqClient) -> list[str]:
 async def list_agents(config: AppConfig, client: LogseqClient) -> list[str]:
     """The closed set of agents that may sign a note, as `<runtime>/<name>`.
 
-    Position is the only test — the agent pages carry two different property
-    conventions (`type:: agent` on the older ones, a `page_type::` template on the
-    newer), and neither is worth making load-bearing. A page that exists only
-    because something references it counts too: that is how a freshly named agent
-    first appears.
+    Two tests, position and existence. Position: exactly `<runtime>/<name>` under
+    the registry. Existence: the page must have a file — mentioning
+    `[[_agents/claude/x]]` in a note makes Logseq create a reference-only page, and
+    counting those would let any agent register itself just by writing a name.
+    Properties are deliberately not tested: the agent pages carry two conventions
+    (`type:: agent`, a `page_type::` template) and neither is worth making
+    load-bearing. Registering an agent therefore means creating its page.
     """
     wl = _enabled_cfg(config)
-    rows = await _rows_under(client, wl.agent_namespace)
+    rows = await _rows_under(client, wl.agent_namespace, materialized=True)
     return select_agents(rows, wl.agent_namespace, wl.agent_exclude)
 
 
@@ -366,7 +384,7 @@ async def add_journal_note(
     # deliberately NOT a grouping level: two agents working the same project in one
     # afternoon would otherwise split into parallel subtrees, each with its own
     # chronology, which is exactly what the single ordered stream avoids.
-    signature = f"[[{wl.agent_namespace.strip('/')}/{signer}]]"
+    signature = tag_ref(f"{wl.agent_namespace.strip('/')}/{signer}")
     note_line = f"{stamp:%H:%M} {signature} {body}"
     note_uuid = await _append_child(client, parent_uuid, parent_children, note_line)
 

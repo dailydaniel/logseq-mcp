@@ -20,11 +20,12 @@ from mcp_server_logseq.worklog import (
     resolve_agent,
     select_agents,
     select_projects,
+    tag_ref,
 )
 
 STAMP = datetime.datetime(2026, 9, 22, 17, 50)
 AGENT = "work-scout"
-SIG = "[[byAgent/claude/work-scout]]"
+SIG = "#_agents/claude/work-scout"
 
 PROJECT_ROWS = [
     ["_work/dynamo", "_work/dynamo"],
@@ -37,13 +38,16 @@ PROJECT_ROWS = [
 ]
 
 AGENT_ROWS = [
-    ["byagent/claude/work-scout", "byAgent/claude/work-scout"],
-    ["byagent/claude/logseq-factory-admin", "byAgent/claude/logseq-factory-admin"],
-    ["byagent/codex/macbook", "byAgent/codex/macbook"],
-    ["byagent/claude/work-cost/notes", "byAgent/claude/work-cost/notes"],  # too deep
-    ["byagent/readinglist/some paper", "byAgent/readingList/Some Paper"],  # content, excluded
-    ["byagent/brief", "byAgent/brief"],                                    # too shallow
+    ["_agents/claude/work-scout", "_agents/claude/work-scout"],
+    ["_agents/claude/logseq-factory-admin", "_agents/claude/logseq-factory-admin"],
+    ["_agents/codex/macbook", "_agents/codex/macbook"],
+    ["_agents/claude/work-cost/notes", "_agents/claude/work-cost/notes"],  # too deep
+    ["_agents/archive/old-bot", "_agents/archive/old-bot"],                # excluded runtime
+    ["_agents/readme", "_agents/readme"],                                  # too shallow
+    ["_agents/claude/ghost", "_agents/claude/ghost"],                      # mentioned, no file
 ]
+# Pages Logseq knows only because a note mentions them: no :block/file.
+FILELESS = {"_agents/claude/ghost"}
 
 TASK_UUID = "6a9eb940-758e-4966-a31d-f91e79c35f42"
 
@@ -121,7 +125,11 @@ class _FakeClient:
             q = args[0]
             if "journal-day" in q:
                 return [["Sep 22nd, 2026"]]
-            return self.agents if '"byagent/' in q else self.projects
+            if '"_agents/' in q:
+                if ":block/file" in q:
+                    return [r for r in self.agents if r[0] not in FILELESS]
+                return self.agents
+            return self.projects
         if method == "logseq.Editor.getBlock":
             uid = args[0]
             return {"uuid": uid, "content": self.blocks[uid]} if uid in self.blocks else None
@@ -147,7 +155,7 @@ class _FakeClient:
 
 def _cfg(tmp_path: Path, body: str = (
     "enabled = true\nexclude = [\"archive\", \"frisbee\"]\n"
-    "agent_exclude = [\"readingList\"]\n"
+    "agent_exclude = [\"archive\"]\n"
 )):
     p = tmp_path / "config.toml"
     p.write_text(f"[worklog]\n{body}", encoding="utf-8")
@@ -259,8 +267,8 @@ def test_the_signature_is_inline_not_a_grouping_level(tmp_path: Path) -> None:
     assert _shape(client.tree) == [
         ("#_worklog", [
             ("#_work/dynamo", [
-                ("17:50 [[byAgent/claude/work-scout]] a", []),
-                ("17:55 [[byAgent/claude/logseq-factory-admin]] b", []),
+                ("17:50 #_agents/claude/work-scout a", []),
+                ("17:55 #_agents/claude/logseq-factory-admin b", []),
             ]),
         ]),
     ]
@@ -369,7 +377,7 @@ def test_list_projects_and_agents_use_their_namespaces(tmp_path: Path) -> None:
     ]
     queries = [c[1][0] for c in client.calls if c[0] == "logseq.DB.datascriptQuery"]
     assert '"_work/"' in queries[0]          # EDN-quoted prefix, not a bare symbol
-    assert '"byagent/"' in queries[1]
+    assert '"_agents/"' in queries[1] and ":block/file" in queries[1]
 
 
 # ---------------------------------------------------------------------------
@@ -378,27 +386,27 @@ def test_list_projects_and_agents_use_their_namespaces(tmp_path: Path) -> None:
 
 
 def test_select_agents_takes_runtime_slash_name_from_any_runtime() -> None:
-    got = select_agents(AGENT_ROWS, "byAgent", ["readingList"])
-    assert got == ["claude/logseq-factory-admin", "claude/work-scout", "codex/macbook"]
+    got = select_agents(AGENT_ROWS, "_agents", ["archive"])
+    assert got == ["claude/ghost", "claude/logseq-factory-admin", "claude/work-scout", "codex/macbook"]
 
 
-def test_without_the_exclude_a_content_namespace_floods_the_list() -> None:
-    """Why agent_exclude exists: the reading list sits at the same depth."""
-    assert "readingList/Some Paper" in select_agents(AGENT_ROWS, "byAgent", [])
+def test_an_excluded_runtime_is_retired_from_the_list() -> None:
+    assert "archive/old-bot" in select_agents(AGENT_ROWS, "_agents", [])
+    assert "archive/old-bot" not in select_agents(AGENT_ROWS, "_agents", ["archive"])
 
 
 def test_resolve_agent_accepts_qualified_full_and_unique_bare_names() -> None:
     agents = ["claude/work-scout", "codex/macbook"]
-    assert resolve_agent(agents, "claude/work-scout", "byAgent") == "claude/work-scout"
-    assert resolve_agent(agents, "byAgent/codex/macbook", "byAgent") == "codex/macbook"
-    assert resolve_agent(agents, "Work-Scout", "byAgent") == "claude/work-scout"
+    assert resolve_agent(agents, "claude/work-scout", "_agents") == "claude/work-scout"
+    assert resolve_agent(agents, "_agents/codex/macbook", "_agents") == "codex/macbook"
+    assert resolve_agent(agents, "Work-Scout", "_agents") == "claude/work-scout"
 
 
 def test_resolve_agent_refuses_a_bare_name_two_runtimes_share() -> None:
     agents = ["claude/reviewer", "codex/reviewer"]
     with pytest.raises(WorklogError, match="ambiguous"):
-        resolve_agent(agents, "reviewer", "byAgent")
-    assert resolve_agent(agents, "codex/reviewer", "byAgent") == "codex/reviewer"
+        resolve_agent(agents, "reviewer", "_agents")
+    assert resolve_agent(agents, "codex/reviewer", "_agents") == "codex/reviewer"
 
 
 def test_a_codex_agent_signs_with_its_own_runtime(tmp_path: Path) -> None:
@@ -407,5 +415,21 @@ def test_a_codex_agent_signs_with_its_own_runtime(tmp_path: Path) -> None:
                                        "codex/macbook", now=STAMP))
     assert res["agent"] == "codex/macbook"
     assert _shape(client.tree) == [
-        ("#_worklog", [("#_work/itquick", [("17:50 [[byAgent/codex/macbook]] linear sync", [])])]),
+        ("#_worklog", [("#_work/itquick", [("17:50 #_agents/codex/macbook linear sync", [])])]),
     ]
+
+
+def test_a_mentioned_but_never_created_agent_page_does_not_register(tmp_path: Path) -> None:
+    """Writing [[_agents/claude/ghost]] in any note makes a reference-only page.
+    Counting those would let an agent mint itself a name; only real pages count."""
+    cfg = _cfg(tmp_path)
+    client = _FakeClient()
+    assert "claude/ghost" not in asyncio.run(list_agents(cfg, client))
+    with pytest.raises(WorklogError, match="unknown agent"):
+        asyncio.run(add_journal_note(cfg, client, "x", "dynamo", "claude/ghost", now=STAMP))
+    assert client.writes() == []
+
+
+def test_tag_ref_brackets_a_name_with_a_space() -> None:
+    assert tag_ref("_agents/claude/work-scout") == "#_agents/claude/work-scout"
+    assert tag_ref("_agents/claude/my agent") == "#[[_agents/claude/my agent]]"
