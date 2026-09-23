@@ -17,6 +17,8 @@ from mcp_server_logseq.worklog import (
     list_agents,
     list_projects,
     project_tag,
+    resolve_agent,
+    select_agents,
     select_projects,
 )
 
@@ -37,7 +39,10 @@ PROJECT_ROWS = [
 AGENT_ROWS = [
     ["byagent/claude/work-scout", "byAgent/claude/work-scout"],
     ["byagent/claude/logseq-factory-admin", "byAgent/claude/logseq-factory-admin"],
+    ["byagent/codex/macbook", "byAgent/codex/macbook"],
     ["byagent/claude/work-cost/notes", "byAgent/claude/work-cost/notes"],  # too deep
+    ["byagent/readinglist/some paper", "byAgent/readingList/Some Paper"],  # content, excluded
+    ["byagent/brief", "byAgent/brief"],                                    # too shallow
 ]
 
 TASK_UUID = "6a9eb940-758e-4966-a31d-f91e79c35f42"
@@ -116,7 +121,7 @@ class _FakeClient:
             q = args[0]
             if "journal-day" in q:
                 return [["Sep 22nd, 2026"]]
-            return self.agents if "byagent/claude" in q else self.projects
+            return self.agents if '"byagent/' in q else self.projects
         if method == "logseq.Editor.getBlock":
             uid = args[0]
             return {"uuid": uid, "content": self.blocks[uid]} if uid in self.blocks else None
@@ -140,7 +145,10 @@ class _FakeClient:
                 and c[0] not in ("logseq.Editor.getBlock", "logseq.Editor.getPageBlocksTree")]
 
 
-def _cfg(tmp_path: Path, body: str = "enabled = true\nexclude = [\"archive\", \"frisbee\"]\n"):
+def _cfg(tmp_path: Path, body: str = (
+    "enabled = true\nexclude = [\"archive\", \"frisbee\"]\n"
+    "agent_exclude = [\"readingList\"]\n"
+)):
     p = tmp_path / "config.toml"
     p.write_text(f"[worklog]\n{body}", encoding="utf-8")
     return load_config(p)
@@ -173,7 +181,7 @@ def test_unknown_project_is_rejected_and_lists_options(tmp_path: Path) -> None:
 
 def test_unknown_agent_is_rejected_and_lists_options(tmp_path: Path) -> None:
     client = _FakeClient()
-    with pytest.raises(WorklogError, match="logseq-factory-admin, work-scout"):
+    with pytest.raises(WorklogError, match="claude/logseq-factory-admin, claude/work-scout, codex/macbook"):
         asyncio.run(add_journal_note(_cfg(tmp_path), client, "note", "dynamo", "hermes"))
     assert client.writes() == []
 
@@ -236,7 +244,7 @@ def test_builds_the_full_nesting(tmp_path: Path) -> None:
         ]),
     ]
     assert res["project"] == "dynamo"
-    assert res["agent"] == AGENT
+    assert res["agent"] == "claude/work-scout"  # the resolved, runtime-qualified name
     assert res["task"] == TASK_UUID
 
 
@@ -356,7 +364,48 @@ def test_list_projects_and_agents_use_their_namespaces(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
     client = _FakeClient()
     assert asyncio.run(list_projects(cfg, client)) == ["dynamo", "itquick"]
-    assert asyncio.run(list_agents(cfg, client)) == ["logseq-factory-admin", "work-scout"]
+    assert asyncio.run(list_agents(cfg, client)) == [
+        "claude/logseq-factory-admin", "claude/work-scout", "codex/macbook",
+    ]
     queries = [c[1][0] for c in client.calls if c[0] == "logseq.DB.datascriptQuery"]
     assert '"_work/"' in queries[0]          # EDN-quoted prefix, not a bare symbol
-    assert '"byagent/claude/"' in queries[1]
+    assert '"byagent/"' in queries[1]
+
+
+# ---------------------------------------------------------------------------
+# Agents across runtimes
+# ---------------------------------------------------------------------------
+
+
+def test_select_agents_takes_runtime_slash_name_from_any_runtime() -> None:
+    got = select_agents(AGENT_ROWS, "byAgent", ["readingList"])
+    assert got == ["claude/logseq-factory-admin", "claude/work-scout", "codex/macbook"]
+
+
+def test_without_the_exclude_a_content_namespace_floods_the_list() -> None:
+    """Why agent_exclude exists: the reading list sits at the same depth."""
+    assert "readingList/Some Paper" in select_agents(AGENT_ROWS, "byAgent", [])
+
+
+def test_resolve_agent_accepts_qualified_full_and_unique_bare_names() -> None:
+    agents = ["claude/work-scout", "codex/macbook"]
+    assert resolve_agent(agents, "claude/work-scout", "byAgent") == "claude/work-scout"
+    assert resolve_agent(agents, "byAgent/codex/macbook", "byAgent") == "codex/macbook"
+    assert resolve_agent(agents, "Work-Scout", "byAgent") == "claude/work-scout"
+
+
+def test_resolve_agent_refuses_a_bare_name_two_runtimes_share() -> None:
+    agents = ["claude/reviewer", "codex/reviewer"]
+    with pytest.raises(WorklogError, match="ambiguous"):
+        resolve_agent(agents, "reviewer", "byAgent")
+    assert resolve_agent(agents, "codex/reviewer", "byAgent") == "codex/reviewer"
+
+
+def test_a_codex_agent_signs_with_its_own_runtime(tmp_path: Path) -> None:
+    client = _FakeClient()
+    res = asyncio.run(add_journal_note(_cfg(tmp_path), client, "linear sync", "itquick",
+                                       "codex/macbook", now=STAMP))
+    assert res["agent"] == "codex/macbook"
+    assert _shape(client.tree) == [
+        ("#_worklog", [("#_work/itquick", [("17:50 [[byAgent/codex/macbook]] linear sync", [])])]),
+    ]

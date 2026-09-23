@@ -471,11 +471,11 @@ async def list_work_projects() -> dict:
 
 @mcp.tool()
 async def list_agents() -> dict:
-    """List the agent names a worklog note can be signed with.
+    """List the agent names a worklog note can be signed with, as `<runtime>/<name>`.
 
-    This is the closed set `add_journal_note` accepts for `agent`. Use your own
-    name — the one this session runs as. The server cannot tell who is calling, so
-    signing honestly is on you."""
+    This is the closed set `add_journal_note` accepts for `agent` — any runtime
+    (claude, codex, ...). Use your own name, the one this session runs as. The
+    server cannot tell who is calling, so signing honestly is on you."""
     agents = await wl.list_agents(_cfg(), get_client())
     return {"count": len(agents), "agents": agents}
 
@@ -484,7 +484,7 @@ async def list_agents() -> dict:
 async def add_journal_note(
     text: Annotated[str, Field(description="What you did, one line, no task marker — the server prefixes the time")],
     work: Annotated[str, Field(description="Project to file the note under; must be one from list_work_projects")],
-    agent: Annotated[str, Field(description="Your own agent name, from list_agents — it is written into the note as a link")],
+    agent: Annotated[str, Field(description="Your own agent name from list_agents, as <runtime>/<name> (a bare name is accepted when only one runtime has it) — written into the note as a link")],
     task: Annotated[Optional[str], Field(description="UUID of the task block this note belongs to; the note nests under a ((ref)) to it")] = None,
 ) -> dict:
     """Log a unit of work to today's journal, under its project (and task).

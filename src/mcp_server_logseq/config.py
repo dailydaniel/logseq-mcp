@@ -104,9 +104,12 @@ class WorklogCfg(_Section):
     namespace: str = "_work"
     root_block: str = "#_worklog"
     exclude: list[str] = Field(default_factory=list)
-    # Namespace whose direct children are the agents allowed to sign a note. The
-    # extra level (`claude`) is the runtime, leaving room for a second one later.
-    agent_namespace: str = "byAgent/claude"
+    # Agents that may sign a note are the pages exactly TWO levels below this
+    # namespace: `<runtime>/<name>` (byAgent/claude/work-scout, byAgent/codex/x).
+    # Any runtime qualifies, so adding one needs no config. Content namespaces that
+    # sit at the same depth (a reading list, project notes) must be listed in
+    # agent_exclude — otherwise every page in them becomes a valid signature.
+    agent_namespace: str = "byAgent"
     agent_exclude: list[str] = Field(default_factory=list)
 
 

@@ -121,10 +121,12 @@ under a `((uuid))` reference to that task — the same shape a human keeps by ha
         ((6a9eb940-758e-4966-a31d-f91e79c35f42))
           17:50 [[byAgent/claude/work-scout]] told how to update
 
-- `agent` must be one of `list_agents()` — **your own name**, the one this session
-  runs as. The signature is written inline on the note rather than as a grouping
-  level, so several agents can log against one project without splitting it. The
-  server cannot tell who is calling: signing honestly is on you.
+- `agent` must be one of `list_agents()`, which returns `<runtime>/<name>`
+  (`claude/work-scout`, `codex/macbook`, …) — **your own name**, the one this
+  session runs as. A bare name is accepted when only one runtime has it. The
+  signature is written inline on the note rather than as a grouping level, so
+  several agents can log against one project without splitting it. The server
+  cannot tell who is calling: signing honestly is on you.
 - `work` must be one of `list_work_projects()` — read that first, do not guess a
   project name; anything else is rejected.
 - `task` must be an EXISTING task block (any marker, `DOING` included). It is not

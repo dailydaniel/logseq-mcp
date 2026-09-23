@@ -136,7 +136,7 @@ full annotated example.
 | `[blacklist]` | `pages` — pages (and subpages) to hide and redact everywhere |
 | `[tasks]` | `allow_status_change` — gate for `set_task_status` |
 | `[audit_log]` | `enabled` — log writes to today's journal |
-| `[worklog]` | `enabled`, `namespace`, `root_block`, `exclude` — the worklog channel |
+| `[worklog]` | `enabled`, `namespace`, `root_block`, `exclude`, `agent_namespace`, `agent_exclude` — the worklog channel |
 | `[queries.<name>]` | a named query: `file`/inline `query`, `register_as_tool`, … |
 
 Secrets and the API URL stay in the environment, never in this file.
@@ -280,8 +280,12 @@ recorded — the journal — in the same shape a human keeps by hand:
 
 - **list_work_projects** — the closed set of projects a note may be filed under
   (the direct children of `[worklog].namespace`, minus `exclude`).
-- **list_agents** — the closed set of names a note may be signed with (the direct
-  children of `[worklog].agent_namespace`).
+- **list_agents** — the closed set of names a note may be signed with, as
+  `<runtime>/<name>`: pages exactly two levels below `[worklog].agent_namespace`
+  (default `byAgent`), from any runtime, minus the content namespaces listed in
+  `agent_exclude`. A new runtime (`byAgent/codex/...`) needs no config; a content
+  namespace at that depth (a reading list) must be excluded, or every page in it
+  becomes a valid signature.
 - **add_journal_note** — append `HH:MM [[agent]] <text>` to today's journal under a
   project (`text`, `work`, `agent`, `task?`), nested under a `((ref))` when a task
   is given.

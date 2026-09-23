@@ -40,11 +40,12 @@ root_block = "#_worklog"
 # Direct children that are not projects (archive roots, retired work) — the
 # depth filter alone would let these through.
 exclude = ["archive"]
-# Namespace whose direct children are the agents allowed to sign a note. The
-# extra level ("claude") names the runtime, leaving room for another one later.
-# Membership is the only test — property conventions on those pages vary.
-agent_namespace = "byAgent/claude"
-agent_exclude = []
+# Agents allowed to sign a note are pages exactly TWO levels below this
+# namespace: <runtime>/<name> (byAgent/claude/work-scout, byAgent/codex/macbook).
+# Any runtime qualifies — adding one needs no config. Content namespaces at that
+# same depth must be excluded, or every page in them becomes a valid signature.
+agent_namespace = "byAgent"
+agent_exclude = ["readingList", "projects"]
 
 # --- custom queries ---
 

@@ -106,6 +106,57 @@ def select_projects(rows: list[Any], namespace: str, exclude: list[str]) -> list
     return sorted(set(out), key=str.lower)
 
 
+def select_agents(rows: list[Any], namespace: str, exclude: list[str]) -> list[str]:
+    """Pure: `[name, original-name]` rows -> the closed set of `<runtime>/<name>`.
+
+    An agent is a page exactly two levels below the namespace. Any runtime counts
+    (`claude`, `codex`, a future one) so a new runtime needs no config; what the
+    exclude list is for is the content namespaces at that same depth — the reading
+    list alone would otherwise contribute a few hundred "agents".
+    """
+    pre = canon_page_name(namespace)
+    denied = {canon_page_name(e) for e in exclude if (e or "").strip()}
+    out: list[str] = []
+    for row in rows:
+        if not isinstance(row, list) or len(row) < 2:
+            continue
+        name, orig = row[0], row[1]
+        if not isinstance(name, str) or not isinstance(orig, str):
+            continue
+        if pre and not name.startswith(pre + "/"):
+            continue
+        remainder = name[len(pre) + 1:] if pre else name
+        segs = [s for s in remainder.split("/") if s]
+        if len(segs) != 2 or segs[0] in denied:
+            continue
+        out.append("/".join(orig.split("/")[-2:]))
+    return sorted(set(out), key=str.lower)
+
+
+def resolve_agent(agents: list[str], wanted: str, namespace: str) -> str:
+    """Match a caller's `agent` against the list, forgivingly but never guessing.
+
+    Accepted: `claude/work-scout`, the full page name `byAgent/claude/work-scout`,
+    or the bare `work-scout` when exactly one runtime has it. A bare name that two
+    runtimes share is refused rather than resolved by preference.
+    """
+    w = canon_page_name(wanted or "")
+    pre = canon_page_name(namespace)
+    if pre and w.startswith(pre + "/"):
+        w = w[len(pre) + 1:]
+    for a in agents:
+        if canon_page_name(a) == w:
+            return a
+    bare = [a for a in agents if canon_page_name(a.split("/", 1)[-1]) == w]
+    if len(bare) == 1:
+        return bare[0]
+    if bare:
+        raise WorklogError(
+            f"agent {wanted!r} is ambiguous ({', '.join(bare)}) — pass it as <runtime>/<name>"
+        )
+    raise WorklogError(f"unknown agent {wanted!r}; pick one of: {', '.join(agents) or '(none)'}")
+
+
 def find_node(nodes: list[Any], line: str) -> Optional[dict]:
     """The first child whose first line matches `line`, if any."""
     for node in nodes or []:
@@ -141,7 +192,7 @@ def clean_text(text: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-async def _children_of(client: LogseqClient, namespace: str, exclude: list[str]) -> list[str]:
+async def _rows_under(client: LogseqClient, namespace: str) -> list[Any]:
     pre = canon_page_name(namespace)
     if not pre:
         raise WorklogError("namespace is empty")
@@ -149,27 +200,27 @@ async def _children_of(client: LogseqClient, namespace: str, exclude: list[str])
         "[:find ?name ?orig :where [?p :block/name ?name] [?p :block/original-name ?orig] "
         f"[(clojure.string/starts-with? ?name {_edn_dumps(pre + '/')})]]"
     )
-    rows = await client.call("logseq.DB.datascriptQuery", [dq]) or []
-    return select_projects(rows, namespace, exclude)
+    return await client.call("logseq.DB.datascriptQuery", [dq]) or []
 
 
 async def list_projects(config: AppConfig, client: LogseqClient) -> list[str]:
     """The closed set of projects a note may be filed under."""
     wl = _enabled_cfg(config)
-    return await _children_of(client, wl.namespace, wl.exclude)
+    return select_projects(await _rows_under(client, wl.namespace), wl.namespace, wl.exclude)
 
 
 async def list_agents(config: AppConfig, client: LogseqClient) -> list[str]:
-    """The closed set of agents that may sign a note.
+    """The closed set of agents that may sign a note, as `<runtime>/<name>`.
 
-    Membership of the namespace is the only test — the pages there carry two
-    different property conventions (`type:: agent` on the older ones, a
-    `page_type::` template on the newer), and neither is worth making load-bearing.
-    A page that exists only because something references it counts too: that is how
-    a freshly named agent first appears.
+    Position is the only test — the agent pages carry two different property
+    conventions (`type:: agent` on the older ones, a `page_type::` template on the
+    newer), and neither is worth making load-bearing. A page that exists only
+    because something references it counts too: that is how a freshly named agent
+    first appears.
     """
     wl = _enabled_cfg(config)
-    return await _children_of(client, wl.agent_namespace, wl.agent_exclude)
+    rows = await _rows_under(client, wl.agent_namespace)
+    return select_agents(rows, wl.agent_namespace, wl.agent_exclude)
 
 
 async def _validate_task(client: LogseqClient, task: str) -> str:
@@ -258,13 +309,7 @@ async def add_journal_note(
             f"unknown project {work!r}; pick one of: {', '.join(projects) or '(none)'}"
         )
 
-    agents = await list_agents(config, client)
-    wanted_agent = canon_page_name(agent or "")
-    signer = next((a for a in agents if canon_page_name(a) == wanted_agent), None)
-    if signer is None:
-        raise WorklogError(
-            f"unknown agent {agent!r}; pick one of: {', '.join(agents) or '(none)'}"
-        )
+    signer = resolve_agent(await list_agents(config, client), agent, wl.agent_namespace)
 
     task_uuid = await _validate_task(client, task) if task else None
 
