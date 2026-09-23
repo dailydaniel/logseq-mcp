@@ -7,6 +7,7 @@ not exposed. See assets/logseq-mcp-design-v0.7.md.
 
 from __future__ import annotations
 
+import datetime
 from typing import Annotated, Any, Optional
 
 from mcp.server.fastmcp import FastMCP
@@ -22,6 +23,7 @@ from . import worklog as wl
 from . import writes as w
 from .config import AppConfig, CompiledQuery
 from .guide import render_guide
+from .journal import ISO_DATE_RE, journal_page
 from .normalize import normalize_block
 
 # ---------------------------------------------------------------------------
@@ -345,19 +347,50 @@ async def datascript_query(
 # ---------------------------------------------------------------------------
 
 
+async def _resolve_page(page: str) -> str:
+    """The page `read_page` should read, or a ValueError saying why there is none.
+
+    A date `YYYY-MM-DD` names that day's journal, found by journal-day — journal
+    titles (`Sep 23rd, 2026`) are easy to get wrong, and a wrong one used to read as
+    an empty page. Anything else must be an existing page: Logseq answers a missing
+    page with no blocks at all, which a caller cannot tell from an empty one.
+    """
+    client = get_client()
+    p = page.strip()
+    if ISO_DATE_RE.match(p):
+        try:
+            day = datetime.date.fromisoformat(p)
+        except ValueError:
+            raise ValueError(f"{page!r} is not a valid date") from None
+        name = await journal_page(client, day)
+        if name is None:
+            raise ValueError(f"there is no journal for {p}")
+        return name
+    if not await client.call("logseq.Editor.getPage", [p]):
+        raise ValueError(
+            f"page {page!r} not found — for a journal, pass its date as YYYY-MM-DD"
+        )
+    return p
+
+
 @mcp.tool()
 async def read_page(
-    page: Annotated[str, Field(description="Page name or UUID")],
+    page: Annotated[str, Field(description="Page name or UUID; a date YYYY-MM-DD reads that day's journal")],
     depth: Annotated[Optional[int], Field(description="Block-ref resolution depth (default from config)")] = None,
 ) -> dict:
-    """Read a page as a normalized block tree with references resolved."""
+    """Read a page as a normalized block tree with references resolved.
+
+    A page that does not exist is an error, not an empty result."""
     bl = _blacklist()
     if bl.is_page_excluded(page):
         raise ValueError(f"page {page!r} is blacklisted")
-    tree = await get_client().call("logseq.Editor.getPageBlocksTree", [page]) or []
+    name = await _resolve_page(page)
+    if bl.is_page_excluded(name):
+        raise ValueError(f"page {name!r} is blacklisted")
+    tree = await get_client().call("logseq.Editor.getPageBlocksTree", [name]) or []
     blocks = [normalize_block(b) for b in tree]
     blocks = await _finalize(blocks, _read_depth(depth))
-    return {"page": page, "blocks": blocks}
+    return {"page": name, "blocks": blocks}
 
 
 @mcp.tool()

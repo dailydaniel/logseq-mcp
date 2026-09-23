@@ -19,6 +19,8 @@ access to a Logseq graph: **read broadly, write only inside `{prefix}/`.**
 - `list_pages(prefix?, depth?)` — list page names by namespace prefix (structure,
   NOT block content). Use to discover the children of a namespace.
 - `read_page(page, depth?)` / `read_block(uuid, depth?)` — content of one page/block.
+  For a journal pass the date, `read_page("2026-09-23")` — never guess its title
+  (`Sep 23rd, 2026`). A page that does not exist is an error, not `[]`.
 - `find_tasks(markers?, tag?, under_tag?, page?, priority?, scope?, agent?, limit?)`
   — task blocks. `scope`: `all` | `agent` (only agent-owned) | `human` (exclude them).
 - `datascript_query(query, inputs?, rules?)` — raw Datalog (advanced).

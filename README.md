@@ -247,7 +247,9 @@ blacklist. Reads resolve `((block refs))` non-lossily (the resolved block's
   co-located with the server, so agents don't re-derive (and mis-derive) behaviour.
 
 ### Read
-- **read_page** — a page as a normalized block tree (`page`, `depth?`).
+- **read_page** — a page as a normalized block tree (`page`, `depth?`). A date
+  `YYYY-MM-DD` reads that day's journal, whatever the graph's title format; a page
+  that does not exist is an error rather than an empty tree.
 - **read_block** — a block and its children (`uuid`, `depth?`).
 
 ### Write (agent namespace only)
