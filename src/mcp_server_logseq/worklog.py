@@ -14,20 +14,21 @@ rests instead on a deliberately narrow contract:
   * **the server stamps the time** — callers cannot pass one, which also keeps a
     resumed agent from writing a remembered (stale) clock value.
 
-The structure maintained in today's journal — find-or-create at every level, so
-repeated notes nest under the existing headers instead of piling up duplicates:
+The structure maintained in today's journal — reuse-or-create at every level, so
+consecutive notes nest under the headers they share instead of piling up duplicates:
 
     #_worklog                                      <- root_block
       #_work/dynamo                                <- project group
         ((6a9eb940-...))                           <- task anchor (with `task`)
           17:50 #_agents/claude/x told how...      <- the note, signed inline
 
-The root is reused only while it is still the journal's LAST top-level block. A
-journal is chronological; a root opened in the morning would otherwise keep
-collecting the whole day's notes, rendering an evening entry above the afternoon
-lines that preceded it. Once anything else lands after it, the next note opens a
-fresh root — so a day reads as alternating stretches of work and everything else,
-in the order they happened.
+A header is reused only while it is still the LAST block at its level: the root
+among the journal's top-level blocks, a project group inside the root, a task
+anchor inside its group. A journal is chronological; a header reused wherever it
+stands keeps collecting later notes and renders them above lines that preceded
+them. Once anything else lands after a header, the next note opens a fresh one —
+so a day reads in the order things happened, at the price of repeated headers
+when work interleaves.
 
 Gated by [worklog].enabled, off by default.
 """
@@ -164,25 +165,19 @@ def resolve_agent(agents: list[str], wanted: str, namespace: str) -> str:
     raise WorklogError(f"unknown agent {wanted!r}; pick one of: {', '.join(agents) or '(none)'}")
 
 
-def find_node(nodes: list[Any], line: str) -> Optional[dict]:
-    """The first child whose first line matches `line`, if any."""
-    for node in nodes or []:
-        if isinstance(node, dict) and first_line(node.get("content") or "") == line:
-            return node
-    return None
+def open_last(nodes: list[Any], line: str) -> Optional[dict]:
+    """The header to reuse for `line`: the LAST of `nodes`, and only if it matches.
 
-
-def open_root(tree: list[Any], line: str) -> Optional[dict]:
-    """The worklog root only while it is still the journal's LAST top-level block.
-
-    A journal is chronological, but a root created at 10:17 keeps swallowing every
-    note written after it — so an 17:51 entry renders above the 15:23 line that
-    actually preceded it. Reusing the root only while nothing has been appended
-    after it keeps a run of consecutive notes grouped and starts a fresh root as
-    soon as anything else (an audit line, a note Daniel typed himself) lands in
-    between. The day then reads top to bottom in the order things happened.
+    A journal is chronological, but a header reused wherever it stands keeps
+    swallowing every note written after it. A root created at 10:17 renders a
+    17:51 entry above the 15:23 line that actually preceded it; with two agents on
+    two projects, a 15:49 note joins its project's earlier group, above the other
+    project's 15:40 line. Reusing a header only while nothing has landed after it
+    keeps a run of consecutive notes grouped and opens a fresh header as soon as
+    anything else comes in between (an audit line, another project, another task).
+    The same rule at every level: the root, the project group, the task anchor.
     """
-    for node in reversed(tree or []):
+    for node in reversed(nodes or []):
         if not isinstance(node, dict):
             continue
         return node if first_line(node.get("content") or "") == line else None
@@ -341,7 +336,7 @@ async def add_journal_note(
     root_line = wl.root_block.strip()
     if not root_line:
         raise WorklogError("[worklog].root_block is empty")
-    root = open_root(tree, root_line)
+    root = open_last(tree, root_line)
     if root is not None:
         root_uuid = root.get("uuid")
         root_children = root.get("children") or []
@@ -356,7 +351,7 @@ async def add_journal_note(
 
     # Level 2: the project group.
     group_line = project_tag(wl.namespace, chosen)
-    group = find_node(root_children, group_line)
+    group = open_last(root_children, group_line)
     if group is not None:
         group_uuid = group.get("uuid")
         group_children = group.get("children") or []
@@ -371,7 +366,7 @@ async def add_journal_note(
     parent_uuid, parent_children = group_uuid, group_children
     if task_uuid:
         anchor_line = f"(({task_uuid}))"
-        anchor = find_node(group_children, anchor_line)
+        anchor = open_last(group_children, anchor_line)
         anchor_uuid = anchor.get("uuid") if isinstance(anchor, dict) else None
         if isinstance(anchor_uuid, str):
             parent_children = anchor.get("children") or []

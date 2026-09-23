@@ -307,12 +307,15 @@ configured inside. And only pages that **have a file** count: writing
 would otherwise be enough to register a name. Registering an agent therefore means
 creating its page, by hand, in Logseq.
 
-The `root_block` is reused only while it is still the journal's **last top-level
-block**. A journal is chronological, and a root opened in the morning would
-otherwise keep collecting the whole day, rendering an evening note above the
-afternoon lines that preceded it. Once anything else lands after it, the next note
-opens a fresh root — so the day reads as alternating stretches of work and
-everything else, in the order they happened.
+Every header is reused only while it is still the **last block at its level**: the
+`root_block` among the journal's top-level blocks, a project group inside the root,
+a task anchor inside its group. A journal is chronological, and a header reused
+wherever it stands keeps collecting later notes: a root opened in the morning would
+render an evening note above the afternoon lines that preceded it, and with two
+agents on two projects a note would join its project's earlier group, above the
+other project's later line. Once anything else lands after a header, the next note
+opens a fresh one — so the day reads in the order things happened, at the price of
+repeated headers when work interleaves.
 
 This is the only channel that writes outside `agent_write_prefix`, so it trades
 path confinement for a narrow contract: **append-only**, **today's journal only**,

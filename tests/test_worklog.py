@@ -284,7 +284,7 @@ def test_without_task_the_note_hangs_off_the_project(tmp_path: Path) -> None:
 
 
 def test_repeated_notes_reuse_root_group_and_anchor(tmp_path: Path) -> None:
-    """The whole point of find-or-create: no duplicated headers over a day."""
+    """Consecutive notes share their headers: no duplicates for a run of work."""
     cfg = _cfg(tmp_path)
     client = _FakeClient(blocks={TASK_UUID: "DOING [[dynamo stats/capology]] x"})
     for text, t in [("continue", STAMP), ("still going", STAMP.replace(minute=59))]:
@@ -312,6 +312,61 @@ def test_second_project_joins_the_same_root(tmp_path: Path) -> None:
         ("#_worklog", [
             ("#_work/dynamo", [(f"17:50 {SIG} a", [])]),
             ("#_work/itquick", [(f"17:50 {SIG} b", [])]),
+        ]),
+    ]
+
+
+def test_a_project_interrupted_by_another_opens_a_fresh_group(tmp_path: Path) -> None:
+    """Two agents, two projects: a later dynamo note must not climb above itquick."""
+    cfg = _cfg(tmp_path)
+    client = _FakeClient()
+    asyncio.run(add_journal_note(cfg, client, "a", "dynamo", AGENT, now=STAMP))
+    asyncio.run(add_journal_note(cfg, client, "b", "itquick", AGENT, now=STAMP.replace(minute=52)))
+    asyncio.run(add_journal_note(cfg, client, "c", "dynamo", AGENT, now=STAMP.replace(minute=55)))
+
+    assert _shape(client.tree) == [
+        ("#_worklog", [
+            ("#_work/dynamo", [(f"17:50 {SIG} a", [])]),
+            ("#_work/itquick", [(f"17:52 {SIG} b", [])]),
+            ("#_work/dynamo", [(f"17:55 {SIG} c", [])]),
+        ]),
+    ]
+
+
+def test_a_task_interrupted_by_another_opens_a_fresh_anchor(tmp_path: Path) -> None:
+    other = "6a9eb940-0000-4000-8000-00000000beef"
+    cfg = _cfg(tmp_path)
+    client = _FakeClient(blocks={TASK_UUID: "DOING x", other: "TODO y"})
+    for text, task, minute in [("a", TASK_UUID, 50), ("b", other, 52), ("c", TASK_UUID, 55)]:
+        asyncio.run(add_journal_note(cfg, client, text, "dynamo", AGENT, task,
+                                     now=STAMP.replace(minute=minute)))
+
+    assert _shape(client.tree) == [
+        ("#_worklog", [
+            ("#_work/dynamo", [
+                (f"(({TASK_UUID}))", [(f"17:50 {SIG} a", [])]),
+                (f"(({other}))", [(f"17:52 {SIG} b", [])]),
+                (f"(({TASK_UUID}))", [(f"17:55 {SIG} c", [])]),
+            ]),
+        ]),
+    ]
+
+
+def test_a_task_note_after_an_untasked_one_opens_a_fresh_anchor(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    client = _FakeClient(blocks={TASK_UUID: "DOING x"})
+    asyncio.run(add_journal_note(cfg, client, "a", "dynamo", AGENT, TASK_UUID, now=STAMP))
+    asyncio.run(add_journal_note(cfg, client, "b", "dynamo", AGENT, now=STAMP.replace(minute=52)))
+    asyncio.run(add_journal_note(cfg, client, "c", "dynamo", AGENT, TASK_UUID,
+                                 now=STAMP.replace(minute=55)))
+
+    assert _shape(client.tree) == [
+        ("#_worklog", [
+            ("#_work/dynamo", [
+                (f"(({TASK_UUID}))", [(f"17:50 {SIG} a", [])]),
+                (f"17:52 {SIG} b", []),
+                (f"(({TASK_UUID}))", [(f"17:55 {SIG} c", [])]),
+            ]),
         ]),
     ]
 
