@@ -41,7 +41,10 @@ def test_registered_tools_keep_their_name_signature_and_docs() -> None:
     assert "YYYY-MM-DD" in rp.inputSchema["properties"]["page"]["description"]
     assert rp.inputSchema["required"] == ["page"]
     assert "not an empty result" in (rp.description or "")
-    assert len(tools) == 18
+    wn = tools["write_note"]
+    assert "block_uuids" in wn.inputSchema["properties"]["blocks"]["description"]
+    assert tools["edit_blocks"].inputSchema["required"] == ["edits"]
+    assert len(tools) == 19
 
 
 def test_a_called_tool_answers_in_compact_json() -> None:

@@ -26,10 +26,12 @@ access to a Logseq graph: **read broadly, write only inside `{prefix}/`.**
 - `datascript_query(query, inputs?, rules?)` — raw Datalog (advanced).
 - `custom_query` / `list_custom_queries` — saved queries.
 - `write_note` / `set_page_properties` — write notes under `{prefix}/` only.
+  `write_note(blocks=[...])` appends whole block trees (a block with its children).
 - `create_task(...)` — the ONLY way to make a task (see Tasks below).
 - `set_task_status(uuid, status)` — change a task's marker.
 - `edit_block(uuid, old_content, new_content)` — replace ONE block's content
   in place (read it first; namespace-confined). See "Editing one block".
+  `edit_blocks(edits=[...])` applies many such edits in one call.
 - `list_work_projects()` / `list_agents()` / `add_journal_note(text, work, agent,
   task?)` — log what you did to TODAY's journal. Present only when `[worklog]` is
   enabled. See "Worklog". `get_worklog_setup_template()` — only when the user asks
@@ -98,6 +100,13 @@ make a task is `create_task`, which enforces the structure:
   properties** (to remove a property use `set_page_properties` with a null value).
   write_note appends a block to a page; to change ONE existing block in place use
   `edit_block` (below).
+- `blocks` appends block TREES in one call: each item is a string or
+  `{"content": "...", "children": [ ...same shape... ]}`, nested up to 8 levels,
+  300 blocks per call. `content` alone can only add one flat block; use `blocks`
+  whenever a block needs children (e.g. a flashcard: the question block with the
+  answer as its children). Every top-level block gets a persisted `id::` — its uuid
+  is stable across re-indexes — and the uuids come back in `block_uuids`, in order.
+  Task markers are refused at any depth, as for `content`.
 - `write_note`'s `properties` argument only applies when the page is first CREATED;
   on an existing page it is **ignored**. To add or change properties on an existing
   page use `set_page_properties` (it upserts; a null value removes a property).
@@ -120,6 +129,11 @@ make a task is `create_task`, which enforces the structure:
 - Like other content writes it is confined to `{prefix}/`: a uuid on a page outside
   the agent namespace is refused. To change a task's status marker use
   `set_task_status`, not `edit_block`.
+- `edit_blocks(edits=[{"uuid", "old_content", "new_content"}, ...])` runs the same
+  checks per item, up to 300 per call, and is NOT all-or-nothing: edits that pass
+  apply, and the rest come back in `rejected` with the reason (usually: the block
+  changed since you read it). Re-read and retry those. One audit line per batch,
+  where single edit_block calls would add one line each.
 
 ## Worklog — recording what you did (only when `[worklog]` is enabled)
 `add_journal_note(text, work, agent, task?)` appends `HH:MM #<agent> <text>` to

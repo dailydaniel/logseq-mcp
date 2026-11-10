@@ -471,9 +471,13 @@ async def write_note(
     content: Annotated[Optional[str], Field(description="Block content to add (markdown)")] = None,
     mode: Annotated[str, Field(description="append | replace (swaps page content, keeps page properties; remove a property via set_page_properties null)")] = "append",
     properties: Annotated[Optional[dict], Field(description="Page properties (set on creation)")] = None,
+    blocks: Annotated[Optional[list], Field(description="Block trees to append after `content`: each a string or {content, children: [...]}. Every top-level block gets a persisted id:: and its uuid comes back in block_uuids")] = None,
 ) -> dict:
-    """Create or update a page in the agent's namespace."""
-    res = await w.write_note(_cfg(), get_client(), subpath, content, mode, properties)
+    """Create or update a page in the agent's namespace.
+
+    `blocks` appends whole block trees (a block with its nested children) in one
+    call — e.g. a flashcard: the question with the answer as its children."""
+    res = await w.write_note(_cfg(), get_client(), subpath, content, mode, properties, blocks)
     await audit.log_write(_cfg(), get_client(), "wrote", f"[[{res['page']}]]")
     return res
 
@@ -527,6 +531,23 @@ async def edit_block(
     live under the agent namespace. To change a task's status use set_task_status."""
     res = await w.edit_block(_cfg(), get_client(), uuid, old_content, new_content)
     await audit.log_write(_cfg(), get_client(), "edited block", f"(({uuid})) on [[{res['page']}]]")
+    return res
+
+
+@tool()
+async def edit_blocks(
+    edits: Annotated[list[dict], Field(description="List of {uuid, old_content, new_content}, each exactly as edit_block takes them")],
+) -> dict:
+    """Apply many block edits in one call, each checked like edit_block.
+
+    Per item: a block that changed since you read it (or lies outside the agent
+    namespace) lands in `rejected` with the reason, and the others still apply —
+    re-read and retry the rejected ones. One audit line for the whole batch."""
+    res = await w.edit_blocks(_cfg(), get_client(), edits)
+    if res["applied"]:
+        pages = sorted({a["page"] for a in res["applied"]})
+        refs = ", ".join(f"[[{p}]]" for p in pages)
+        await audit.log_write(_cfg(), get_client(), f"edited {len(res['applied'])} blocks on", refs)
     return res
 
 

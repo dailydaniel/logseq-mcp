@@ -56,6 +56,58 @@ async def _ensure_page(
     return created, False
 
 
+_TASK_MARKER_MSG = (
+    "content starts with a task marker — create tasks via create_task, not "
+    "write_note (write_note is for notes; create_task enforces task structure)"
+)
+
+MAX_TREE_BLOCKS = 300   # blocks in one write_note call, children included
+MAX_TREE_DEPTH = 8
+MAX_BATCH_EDITS = 300
+
+
+def _normalize_tree(node: Any, depth: int = 0) -> dict:
+    """A block tree as the caller sends it -> {"content", "children"}.
+
+    A node is a string, or an object with `content` and optional `children` (a list
+    of nodes). Validated whole before anything is written, so a bad node deep in
+    the tree cannot leave a half-written page behind.
+    """
+    if depth >= MAX_TREE_DEPTH:
+        raise WriteError(f"blocks nest at most {MAX_TREE_DEPTH} levels deep")
+    if isinstance(node, str):
+        content, children = node, []
+    elif isinstance(node, dict):
+        content, children = node.get("content"), node.get("children") or []
+    else:
+        raise WriteError("each block must be a string or an object with 'content'")
+    if not isinstance(content, str) or not content.strip():
+        raise WriteError("every block needs non-empty string content")
+    if parse_marker(content)[0] is not None:
+        raise WriteError(_TASK_MARKER_MSG)
+    if not isinstance(children, list):
+        raise WriteError("'children' must be a list of blocks")
+    return {
+        "content": content,
+        "children": [_normalize_tree(c, depth + 1) for c in children],
+    }
+
+
+def _count_blocks(trees: list[dict]) -> int:
+    return sum(1 + _count_blocks(t["children"]) for t in trees)
+
+
+def _to_batch(trees: list[dict]) -> list[dict]:
+    """Normalized trees -> the shape logseq.Editor.insertBatchBlock takes."""
+    out = []
+    for t in trees:
+        item: dict[str, Any] = {"content": t["content"]}
+        if t["children"]:
+            item["children"] = _to_batch(t["children"])
+        out.append(item)
+    return out
+
+
 async def write_note(
     config: AppConfig,
     client: LogseqClient,
@@ -63,14 +115,19 @@ async def write_note(
     content: Optional[str] = None,
     mode: str = "append",
     properties: Optional[dict] = None,
+    blocks: Optional[list] = None,
 ) -> dict:
     if mode not in ("append", "replace"):
         raise WriteError("mode must be 'append' or 'replace'")
     if content and parse_marker(content)[0] is not None:
-        raise WriteError(
-            "content starts with a task marker — create tasks via create_task, not "
-            "write_note (write_note is for notes; create_task enforces task structure)"
-        )
+        raise WriteError(_TASK_MARKER_MSG)
+    trees: list[dict] = []
+    if blocks is not None:
+        if not isinstance(blocks, list) or not blocks:
+            raise WriteError("blocks must be a non-empty list")
+        trees = [_normalize_tree(b) for b in blocks]
+        if _count_blocks(trees) > MAX_TREE_BLOCKS:
+            raise WriteError(f"at most {MAX_TREE_BLOCKS} blocks per call, children included")
     name = resolve_agent_path(config, subpath)
 
     page, existed = await _ensure_page(
@@ -96,6 +153,7 @@ async def write_note(
             appended_uuid = block.get("uuid")
 
     # Re-attach preserved page properties to the new first block (mode="replace").
+    # The holder is created before any block trees, so it stays the page's first block.
     if preserved:
         holder = appended_uuid
         if holder is None:
@@ -105,12 +163,36 @@ async def write_note(
             for key, value in preserved.items():
                 await client.call("logseq.Editor.upsertBlockProperty", [holder, key, value])
 
-    return {
+    # Block trees: each top-level block is appended, its children inserted under it,
+    # and its uuid persisted as `id::` so it survives a re-index (Logseq otherwise
+    # writes `id::` only once something references the block). Callers can key on
+    # the returned uuids — e.g. a flashcard's identity.
+    block_uuids: list[str] = []
+    for tree in trees:
+        block = await client.call("logseq.Editor.appendBlockInPage", [name, tree["content"]])
+        uuid = block.get("uuid") if isinstance(block, dict) else None
+        if not uuid:
+            raise WriteError(
+                f"could not append a block to {name!r} "
+                f"({len(block_uuids)} of {len(trees)} block trees were written)"
+            )
+        if tree["children"]:
+            await client.call(
+                "logseq.Editor.insertBatchBlock",
+                [uuid, _to_batch(tree["children"]), {"sibling": False}],
+            )
+        await client.call("logseq.Editor.upsertBlockProperty", [uuid, "id", uuid])
+        block_uuids.append(uuid)
+
+    result = {
         "page": name,
         "already_existed": existed,
         "appended_uuid": appended_uuid,
         "kept_properties": list(preserved.keys()),
     }
+    if trees:
+        result["block_uuids"] = block_uuids
+    return result
 
 
 def _tag_token(tag: str) -> str:
@@ -310,6 +392,39 @@ async def edit_block(
         "old_content": current,
         "new_content": new_content,
     }
+
+
+async def edit_blocks(
+    config: AppConfig, client: LogseqClient, edits: list
+) -> dict:
+    """Apply many edit_block edits in one call, each with edit_block's own checks.
+
+    Per item, not all-or-nothing: a block that changed since it was read (or sits
+    outside the agent namespace) is reported in `rejected` and the rest still
+    apply, so one concurrent human edit cannot stall a whole batch. The caller
+    re-reads and retries the rejected ones.
+    """
+    if not isinstance(edits, list) or not edits:
+        raise WriteError("edits must be a non-empty list")
+    if len(edits) > MAX_BATCH_EDITS:
+        raise WriteError(f"at most {MAX_BATCH_EDITS} edits per call")
+
+    applied: list[dict] = []
+    rejected: list[dict] = []
+    for item in edits:
+        uuid = item.get("uuid") if isinstance(item, dict) else None
+        if not isinstance(uuid, str) or not uuid:
+            rejected.append({"uuid": uuid, "reason": "each edit needs a uuid"})
+            continue
+        try:
+            res = await edit_block(
+                config, client, uuid, item.get("old_content"), item.get("new_content")
+            )
+        except WriteError as exc:
+            rejected.append({"uuid": uuid, "reason": str(exc)})
+            continue
+        applied.append({"uuid": uuid, "page": res["page"]})
+    return {"applied": applied, "rejected": rejected}
 
 
 async def set_task_status(
