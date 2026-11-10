@@ -7,6 +7,8 @@ only the leading marker.
 
 from __future__ import annotations
 
+import asyncio
+import uuid as uuidlib
 from typing import Any, Optional
 
 from .blacklist import canon_page_name
@@ -61,9 +63,13 @@ _TASK_MARKER_MSG = (
     "write_note (write_note is for notes; create_task enforces task structure)"
 )
 
-MAX_TREE_BLOCKS = 300   # blocks in one write_note call, children included
+MAX_TREE_BLOCKS = 1000  # blocks in one write_note call, children included
 MAX_TREE_DEPTH = 8
 MAX_BATCH_EDITS = 300
+# Seconds to let Logseq settle before reading writes back. Rapid sequences of
+# single-block writes lost blocks on the live graph (2026-11-11: ~8% of a 221-card
+# import, in runs of 4-5); writes are batched and read back for that reason.
+VERIFY_DELAY = 1.5
 
 
 def _normalize_tree(node: Any, depth: int = 0) -> dict:
@@ -97,11 +103,16 @@ def _count_blocks(trees: list[dict]) -> int:
     return sum(1 + _count_blocks(t["children"]) for t in trees)
 
 
-def _to_batch(trees: list[dict]) -> list[dict]:
-    """Normalized trees -> the shape logseq.Editor.insertBatchBlock takes."""
+def _to_batch(trees: list[dict], ids: Optional[list[str]] = None) -> list[dict]:
+    """Normalized trees -> the shape logseq.Editor.insertBatchBlock takes.
+
+    `ids`, when given, become the top-level blocks' uuids (with keepUUID) and are
+    written as `id::`, so the uuid survives a re-index."""
     out = []
-    for t in trees:
+    for i, t in enumerate(trees):
         item: dict[str, Any] = {"content": t["content"]}
+        if ids is not None:
+            item["properties"] = {"id": ids[i]}
         if t["children"]:
             item["children"] = _to_batch(t["children"])
         out.append(item)
@@ -154,35 +165,49 @@ async def write_note(
 
     # Re-attach preserved page properties to the new first block (mode="replace").
     # The holder is created before any block trees, so it stays the page's first block.
+    holder_uuid = None
     if preserved:
         holder = appended_uuid
         if holder is None:
             block = await client.call("logseq.Editor.appendBlockInPage", [name, ""])
             holder = block.get("uuid") if isinstance(block, dict) else None
+        holder_uuid = holder
         if holder:
             for key, value in preserved.items():
                 await client.call("logseq.Editor.upsertBlockProperty", [holder, key, value])
 
-    # Block trees: each top-level block is appended, its children inserted under it,
-    # and its uuid persisted as `id::` so it survives a re-index (Logseq otherwise
-    # writes `id::` only once something references the block). Callers can key on
-    # the returned uuids — e.g. a flashcard's identity.
+    # Block trees go in as ONE insertBatchBlock: one Logseq transaction and one file
+    # write. Each top-level block gets a uuid we mint, kept by Logseq (keepUUID) and
+    # written as `id::`, so it survives a re-index (Logseq otherwise writes `id::`
+    # only once something references the block) — callers key on these uuids, e.g.
+    # a flashcard's identity. Everything is read back before reporting success.
     block_uuids: list[str] = []
-    for tree in trees:
-        block = await client.call("logseq.Editor.appendBlockInPage", [name, tree["content"]])
-        uuid = block.get("uuid") if isinstance(block, dict) else None
-        if not uuid:
+    if trees:
+        block_uuids = [str(uuidlib.uuid4()) for _ in trees]
+        anchor, placeholder = appended_uuid or holder_uuid, None
+        if anchor is None:
+            tree = await client.call("logseq.Editor.getPageBlocksTree", [name]) or []
+            anchor = tree[-1].get("uuid") if tree else None
+        if anchor is None:
+            block = await client.call("logseq.Editor.appendBlockInPage", [name, ""])
+            placeholder = anchor = block.get("uuid") if isinstance(block, dict) else None
+        if anchor is None:
+            raise WriteError(f"could not find or create a block to insert after on {name!r}")
+        await client.call(
+            "logseq.Editor.insertBatchBlock",
+            [anchor, _to_batch(trees, block_uuids), {"sibling": True, "keepUUID": True}],
+        )
+        if placeholder:
+            await client.call("logseq.Editor.removeBlock", [placeholder])
+        await asyncio.sleep(VERIFY_DELAY)
+        tree = await client.call("logseq.Editor.getPageBlocksTree", [name]) or []
+        present = {b.get("uuid") for b in tree}
+        missing = [u for u in block_uuids if u not in present]
+        if missing:
             raise WriteError(
-                f"could not append a block to {name!r} "
-                f"({len(block_uuids)} of {len(trees)} block trees were written)"
+                f"{len(missing)} of {len(block_uuids)} blocks are not on {name!r} after "
+                f"the write (first missing: {missing[0]}); re-read the page and add what is missing"
             )
-        if tree["children"]:
-            await client.call(
-                "logseq.Editor.insertBatchBlock",
-                [uuid, _to_batch(tree["children"]), {"sibling": False}],
-            )
-        await client.call("logseq.Editor.upsertBlockProperty", [uuid, "id", uuid])
-        block_uuids.append(uuid)
 
     result = {
         "page": name,
@@ -423,8 +448,20 @@ async def edit_blocks(
         except WriteError as exc:
             rejected.append({"uuid": uuid, "reason": str(exc)})
             continue
-        applied.append({"uuid": uuid, "page": res["page"]})
-    return {"applied": applied, "rejected": rejected}
+        applied.append({"uuid": uuid, "page": res["page"], "_new": item.get("new_content")})
+
+    # Read every applied edit back: under a burst of writes Logseq can drop one.
+    if applied:
+        await asyncio.sleep(VERIFY_DELAY)
+    kept: list[dict] = []
+    for a in applied:
+        raw = await client.call("logseq.Editor.getBlock", [a["uuid"], {"includeChildren": False}])
+        if isinstance(raw, dict) and (raw.get("content") or "") == a["_new"]:
+            kept.append({"uuid": a["uuid"], "page": a["page"]})
+        else:
+            rejected.append({"uuid": a["uuid"], "reason": "the edit did not persist "
+                             "(Logseq dropped it) — re-read the block and retry"})
+    return {"applied": kept, "rejected": rejected}
 
 
 async def set_task_status(

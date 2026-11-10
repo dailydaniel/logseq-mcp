@@ -258,16 +258,17 @@ indented, fully-keyed form.
 ### Write (agent namespace only)
 - **write_note** — create/append/replace a page under `agent_write_prefix`
   (`subpath`, `content?`, `mode?`, `properties?`, `blocks?`). `blocks` appends
-  whole block trees (`{content, children}`, e.g. a flashcard with its answer);
-  each top-level block gets a persisted `id::`, and its uuid is returned.
+  whole block trees (`{content, children}`, e.g. a flashcard with its answer) in
+  one transaction, read back before success; each top-level block gets a
+  persisted `id::`, and its uuid is returned.
 - **set_page_properties** — set/remove page properties (`subpath`, `properties`;
   a `null` value removes one).
 - **edit_block** — replace one block's content (`uuid`, `old_content`,
   `new_content`). Read-before-write is enforced: the edit is rejected unless
   `old_content` matches the block's exact current content. Agent namespace only.
 - **edit_blocks** — many `edit_block` edits in one call (`edits`), checked per item:
-  the ones that pass apply, the rest come back as `rejected` with the reason. One
-  audit line per batch.
+  the ones that pass apply and are read back, the rest come back as `rejected` with
+  the reason. One audit line per batch.
 
 ### Tasks
 - **create_task** — create a task block in the agent namespace (`title`, `agent`,

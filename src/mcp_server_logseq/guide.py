@@ -102,11 +102,13 @@ make a task is `create_task`, which enforces the structure:
   `edit_block` (below).
 - `blocks` appends block TREES in one call: each item is a string or
   `{"content": "...", "children": [ ...same shape... ]}`, nested up to 8 levels,
-  300 blocks per call. `content` alone can only add one flat block; use `blocks`
+  1000 blocks per call. `content` alone can only add one flat block; use `blocks`
   whenever a block needs children (e.g. a flashcard: the question block with the
   answer as its children). Every top-level block gets a persisted `id::` — its uuid
   is stable across re-indexes — and the uuids come back in `block_uuids`, in order.
-  Task markers are refused at any depth, as for `content`.
+  Task markers are refused at any depth, as for `content`. Send many blocks in ONE
+  call rather than many calls: the server writes them as one transaction and reads
+  the page back; a burst of single writes can lose blocks in Logseq.
 - `write_note`'s `properties` argument only applies when the page is first CREATED;
   on an existing page it is **ignored**. To add or change properties on an existing
   page use `set_page_properties` (it upserts; a null value removes a property).
@@ -132,7 +134,8 @@ make a task is `create_task`, which enforces the structure:
 - `edit_blocks(edits=[{"uuid", "old_content", "new_content"}, ...])` runs the same
   checks per item, up to 300 per call, and is NOT all-or-nothing: edits that pass
   apply, and the rest come back in `rejected` with the reason (usually: the block
-  changed since you read it). Re-read and retry those. One audit line per batch,
+  changed since you read it, or the edit did not persist when read back). Re-read
+  and retry those. One audit line per batch,
   where single edit_block calls would add one line each.
 
 ## Worklog — recording what you did (only when `[worklog]` is enabled)
