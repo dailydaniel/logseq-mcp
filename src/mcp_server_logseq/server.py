@@ -1,7 +1,8 @@
 """Logseq MCP server — agent-facing tool surface.
 
-Principle: read broadly (everything blacklist-filtered), write narrowly (only the
-agent namespace + a task-status carve-out). Raw low-level Logseq write methods are
+Principle: read broadly (everything blacklist-filtered), write narrowly: the agent
+namespace, plus three narrow carve-outs — task status, the worklog and approved
+journal tasks. Raw low-level Logseq write methods are
 not exposed. See assets/logseq-mcp-design-v0.7.md.
 """
 

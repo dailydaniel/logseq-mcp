@@ -193,9 +193,10 @@ under a `((uuid))` reference to that task — the same shape a human keeps by ha
   recalled from earlier in a resumed session.
 - `text` may not start with a task marker — that would create a task in the journal;
   use `create_task` for that.
-- This is the one channel that writes OUTSIDE `{prefix}/`, so it is deliberately
-  narrow: append-only, today's journal only, and everything it creates lives under
-  the single worklog root block. It can never edit or delete anything.
+- It is one of the two channels that write OUTSIDE `{prefix}/` (the other is
+  `add_journal_tasks`), so it is deliberately narrow: append-only, today's journal
+  only, and everything it creates lives under the single worklog root block. It can
+  never edit or delete anything.
 """
 
 

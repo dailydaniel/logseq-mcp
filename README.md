@@ -335,7 +335,7 @@ other project's later line. Once anything else lands after a header, the next no
 opens a fresh one — so the day reads in the order things happened, at the price of
 repeated headers when work interleaves.
 
-This is the only channel that writes outside `agent_write_prefix`, so it trades
+Like `add_journal_tasks`, it writes outside `agent_write_prefix`, so it trades
 path confinement for a narrow contract: **append-only**, **today's journal only**,
 everything it creates lives under a `root_block`, `work` must come from the enum,
 `task` must be an existing task block, and **the server stamps the time** (a caller
