@@ -19,6 +19,10 @@ pages = ["apikey"]         # page + its subpages hidden; [[apikey]] mentions red
 
 [tasks]
 allow_status_change = false
+# add_journal_tasks(): agents add tasks the user approved to the user's journal,
+# under an existing block tagged with one of these roots (or a block below it);
+# "_work" also covers #_work/dynamo, never #_work/archive/... Empty = off.
+journal_tags = []                  # e.g. ["_study", "_work"]
 
 [audit_log]
 enabled = false

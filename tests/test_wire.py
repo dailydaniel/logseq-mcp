@@ -44,7 +44,7 @@ def test_registered_tools_keep_their_name_signature_and_docs() -> None:
     wn = tools["write_note"]
     assert "block_uuids" in wn.inputSchema["properties"]["blocks"]["description"]
     assert tools["edit_blocks"].inputSchema["required"] == ["edits"]
-    assert len(tools) == 19
+    assert len(tools) == 20
 
 
 def test_a_called_tool_answers_in_compact_json() -> None:

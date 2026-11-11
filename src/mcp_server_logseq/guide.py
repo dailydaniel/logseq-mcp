@@ -29,6 +29,8 @@ access to a Logseq graph: **read broadly, write only inside `{prefix}/`.**
   `write_note(blocks=[...])` appends whole block trees (a block with its children).
 - `create_task(...)` — the ONLY way to make a task (see Tasks below).
 - `set_task_status(uuid, status)` — change a task's marker.
+- `add_journal_tasks(parent, tasks)` — add tasks the USER approved to their journal,
+  under an existing block. See "Tasks in the user's journal".
 - `edit_block(uuid, old_content, new_content)` — replace ONE block's content
   in place (read it first; namespace-confined). See "Editing one block".
   `edit_blocks(edits=[...])` applies many such edits in one call.
@@ -90,6 +92,33 @@ make a task is `create_task`, which enforces the structure:
 - `blocks_on` is a block UUID rendered as `((uuid))` — a lightweight dependency edge.
 - Markers must be real Logseq markers (TODO/DOING/NOW/LATER/DONE/WAITING/...). There
   is no `PENDING` — use `WAITING` or `LATER`.
+
+## Tasks in the user's journal (only when `[tasks].journal_tags` is set)
+The user keeps tasks in journals, under category headers, and plans the week with
+`((refs))` to them:
+
+    plans for week 9/11/26 #_week_plan
+      #_study
+        ((начать изучать RL))
+          TODO [#B] [[byAgent/learn/rl/mdp]] MDP и уравнение Беллмана   <- added
+
+`add_journal_tasks(parent, tasks=[{"title", "priority"?, "page"?}, ...])` adds new
+TODOs as the last children of `parent`, in order, as `TODO [#P] [[page]] title`.
+
+- **Only a list the user approved in this conversation, word for word.** Show the
+  list first; the server cannot see the approval, so this is on you.
+- `parent` is a block uuid on a journal page, under a configured tag (e.g.
+  `#_study`, `#_work/dynamo`; never `…/archive/…`): the header itself, or a
+  `((ref))` to the bigger task the new ones break down. Find it with read_page on
+  the journal or `query_week_plan`.
+- Pass the bare title: no marker (the server writes TODO), one line.
+- A task already open under the same tag with the same text (ignoring case, link
+  brackets and priority) is not added; it comes back in `duplicates` with its uuid.
+  The server only catches exact repeats — search for similar tasks yourself before
+  proposing a list.
+- `added` returns each new task's uuid: keep them for `set_task_status`.
+- Append-only: it never edits, moves or removes anything. Tasks for an agent to
+  execute go in the agent namespace via `create_task` instead.
 
 ## Writing notes
 - `write_note(subpath="plan")` always lands under `{prefix}/` (-> `{prefix}/plan`).

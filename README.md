@@ -134,7 +134,7 @@ full annotated example.
 | `[write]` | `agent_write_prefix` (default `byAgent`), `allow_agents_write_any` |
 | `[search]` | `files_path` — graph folder; set it to use the ripgrep backend |
 | `[blacklist]` | `pages` — pages (and subpages) to hide and redact everywhere |
-| `[tasks]` | `allow_status_change` — gate for `set_task_status` |
+| `[tasks]` | `allow_status_change` — gate for `set_task_status`; `journal_tags` — tag roots `add_journal_tasks` may add tasks under (e.g. `["_study", "_work"]`; empty = off) |
 | `[audit_log]` | `enabled` — log writes to today's journal |
 | `[worklog]` | `enabled`, `namespace`, `root_block`, `exclude`, `agent_namespace`, `agent_exclude` — the worklog channel |
 | `[queries.<name>]` | a named query: `file`/inline `query`, `register_as_tool`, … |
@@ -277,6 +277,13 @@ indented, fully-keyed form.
   starts with a task marker.
 - **set_task_status** — change only a task's marker (`uuid`, `status`); gated by
   `[tasks].allow_status_change`.
+- **add_journal_tasks** — add TODOs the user approved to *their* journal, under an
+  existing block (`parent`, `tasks`: each a title or `{title, priority?, page?}` →
+  `TODO [#P] [[page]] title`). The parent must be on a journal page and under a tag
+  from `[tasks].journal_tags` (`#_study`, `#_work/…`, never `…/archive/…`) — a
+  category header or a `((ref))` to a bigger task in the weekly plan. Append-only,
+  one transaction, read back; a task already open under the same tag (same text,
+  ignoring case, links and priority) is skipped and reported with its uuid.
 
 ### Worklog (today's journal; `[worklog].enabled`)
 An agent that does work should be able to say so where the rest of the work is

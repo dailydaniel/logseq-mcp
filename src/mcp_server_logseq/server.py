@@ -19,6 +19,7 @@ from .blacklist import Blacklist, canon_page_name
 from .client import LogseqClient
 from . import audit
 from . import filesearch as fs
+from . import journal_tasks as jt
 from . import queries as q
 from . import resolve as rsv
 from . import worklog as wl
@@ -559,6 +560,32 @@ async def set_task_status(
     """Change only a task block's status marker (text untouched)."""
     res = await w.set_task_status(_cfg(), get_client(), uuid, status)
     await audit.log_write(_cfg(), get_client(), "moved task", f"(({uuid})) to {res['new_status']}")
+    return res
+
+
+@tool()
+async def add_journal_tasks(
+    parent: Annotated[str, Field(description="UUID of the journal block to add under: a category header (#_study, #_work/dynamo) or a ((ref)) to a bigger task in the weekly plan")],
+    tasks: Annotated[list, Field(description="Tasks in order: each a title string or {title, priority?: A|B|C, page?: page name} -> `TODO [#P] [[page]] title`")],
+) -> dict:
+    """Add new TODO tasks to the user's journal, under an existing block.
+
+    Only for a list the user has approved in this conversation, word for word — the
+    server cannot check that, so it is on you. The tasks become the last children
+    of `parent`, which must be on a journal page and under a configured tag
+    (`[tasks].journal_tags`, e.g. #_study, #_work/…; never …/archive/…).
+
+    Append-only: nothing existing is edited. A task already open under the same tag
+    (same text, ignoring case, links and priority) is not added again; it comes back
+    in `duplicates` with its uuid. `added` lists the new tasks' uuids — use those
+    for set_task_status. For tasks in the agent namespace use create_task."""
+    res = await jt.add_journal_tasks(_cfg(), get_client(), parent, tasks)
+    if res["added"]:
+        n = len(res["added"])
+        await audit.log_write(
+            _cfg(), get_client(), f"added {n} task{'s' if n > 1 else ''} under",
+            f"(({res['parent']})) on [[{res['page']}]]",
+        )
     return res
 
 

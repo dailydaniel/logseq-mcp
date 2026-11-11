@@ -85,6 +85,9 @@ class BlacklistCfg(_Section):
 
 class TasksCfg(_Section):
     allow_status_change: bool = False
+    # Tag roots under which add_journal_tasks may add TODOs to the user's journal
+    # (`_study`, `_work` → also `#_work/dynamo`). Empty: the tool refuses.
+    journal_tags: list[str] = Field(default_factory=list)
 
 
 class AuditLogCfg(_Section):
